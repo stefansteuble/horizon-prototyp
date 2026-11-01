@@ -635,8 +635,10 @@ async function show3D(d){
   const ring=d.parcel.map(([x,y])=>lv95ToWgs(x+d.e,y+d.n));
   const pos=C.Cartesian3.fromDegreesArray(ring.flat());
   const acc=C.Color.fromCssColorString(cssVar("--accent")||"#1E6A4E");
-  viewer.entities.add({polygon:{hierarchy:pos, material:acc.withAlpha(0.35), classificationType:C.ClassificationType.BOTH}});
-  viewer.entities.add({polyline:{positions:pos.concat([pos[0]]), width:4, clampToGround:true, material:acc}});
+  const hi=C.Color.fromCssColorString("#2FD38A");
+  viewer.entities.add({polygon:{hierarchy:pos, material:hi.withAlpha(0.45), classificationType:C.ClassificationType.BOTH}});
+  viewer.entities.add({polyline:{positions:pos.concat([pos[0]]), width:5, clampToGround:true,
+    material:new C.PolylineOutlineMaterialProperty({color:hi, outlineColor:acc, outlineWidth:2})}});
   const cx=ring.reduce((t,p)=>t+p[0],0)/ring.length, cy=ring.reduce((t,p)=>t+p[1],0)/ring.length;
   let h=400;
   try{ const [p]=await C.sampleTerrainMostDetailed(viewer.terrainProvider,[C.Cartographic.fromDegrees(cx,cy)]); if(p&&isFinite(p.height)) h=p.height; }catch(e){}
