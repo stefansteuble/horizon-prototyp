@@ -130,7 +130,21 @@ footer a{color:inherit}
   .field{flex-direction:column}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* Karte */
+.mapband{position:relative;border-bottom:1px solid var(--line);background:var(--paper)}
+.map{height:360px;width:100%}
+.mapband .hint{position:absolute;left:12px;bottom:12px;z-index:2;background:var(--sheet);color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:5px 12px;font-size:12.5px;pointer-events:none;max-width:calc(100% - 24px)}
+.mapband .busy{position:absolute;inset:0;z-index:3;display:grid;place-items:center;background:color-mix(in srgb,var(--sheet) 55%,transparent)}
+.mapband .busy span{background:var(--sheet);border:1px solid var(--line);border-radius:99px;padding:8px 14px;font-size:13px;display:flex;gap:8px;align-items:center}
+.mapband .busy span::before{content:"";width:12px;height:12px;border-radius:50%;border:2px solid var(--accent);border-top-color:transparent;animation:spin .8s linear infinite}
+.maplibregl-ctrl-attrib{font-size:11px}
+.score-main{display:flex;flex-direction:column;gap:10px}
+.top.solo{grid-template-columns:1fr}
+.top.solo .score{display:grid;grid-template-columns:minmax(180px,240px) 1fr;gap:12px 28px;align-items:center}
+@media (max-width:620px){ .map{height:290px} .top.solo .score{grid-template-columns:1fr} }
 </style>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" defer></script>
 </head>
 <body>
 
@@ -232,7 +246,8 @@ function identifyUrl(e,n,layers,tol,geom){
 function ringArea(r){ let a=0; for(let i=0,j=r.length-1;i<r.length;j=i++) a+=(r[j][0]+r[i][0])*(r[j][1]-r[i][1]); return Math.abs(a/2); }
 
 async function analyseLive(hit, onStep){
-  const out = { label:hit.label, demo:false };
+  const out = { label:hit.label, demo:false, e:hit.e, n:hit.n };
+  let egid = hit.egid || "";
   // 1 Parzelle (amtliche Vermessung, mit Geometrie)
   onStep(0);
   try{
@@ -251,10 +266,16 @@ async function analyseLive(hit, onStep){
   // 2 Gebäude (GWR)
   onStep(1);
   try{
-    const g = await getJSON(identifyUrl(hit.e,hit.n,"ch.bfs.gebaeude_wohnungs_register",5,false));
+    // Bei Klick auf die Karte grösserer Suchradius, dann nur Gebäude auf dieser Parzelle
+    const g = await getJSON(identifyUrl(hit.e,hit.n,"ch.bfs.gebaeude_wohnungs_register",hit.fromClick?40:5,false));
     const list=(g.results||[]).map(props);
-    const b = list.find(a=>String(a.egid)===hit.egid) || list[0];
+    let b = egid ? list.find(a=>String(a.egid)===egid) : null;
+    if(!b && out.egrid) b = list.find(a=>a.egrid===out.egrid);
+    if(!b && !hit.fromClick) b = list[0];
+    if(!b && out.parcel && hit.fromClick) out.empty = true;
     if(b){
+      egid = String(b.egid||egid);
+      if(hit.fromClick) out.label = `${b.strname_deinr||""}, ${b.dplz4||""} ${b.dplzname||""}`.replace(/^, /,"").trim();
       out.year=+b.gbauj||null; out.yearApprox=!b.gbauj&&GBAUP[b.gbaup]||null;
       out.klasse=GKLAS[b.gklas]||GKAT[b.gkat]||null; out.floors=+b.gastw||null;
       out.units=+b.ganzwhg||null; out.footprint=+b.garea||null;
@@ -269,7 +290,7 @@ async function analyseLive(hit, onStep){
       getJSON(identifyUrl(hit.e,hit.n,"ch.are.bauzonen",0,false)),
       getJSON(identifyUrl(hit.e,hit.n,"ch.are.gueteklassen_oev",0,false))
     ]);
-    const za=props((z.results||[])[0]); out.zone=za.ch_bez_d||null;
+    const za=props((z.results||[])[0]); out.zone=za.ch_bez_d||null; out.gemeinde=out.gemeinde||za.name||null;
     const oa=props((o.results||[])[0]); const k=String(oa.klasse_de||"").charAt(0); out.oev="ABCD".includes(k)&&k?k:null;
   }catch(e){}
   // 4 Solarpotenzial und Dachumriss (Sonnendach), alle Dachflächen des Gebäudes
@@ -279,14 +300,15 @@ async function analyseLive(hit, onStep){
     // (find nach gwr_egid ist auf diesem grossen Layer zu langsam.)
     const s = await getJSON(identifyUrl(hit.e,hit.n,"ch.bfe.solarenergie-eignung-daecher",15,true));
     const all=s.results||[];
-    const own=hit.egid?all.filter(r=>String(props(r).gwr_egid)===hit.egid):[];
-    const roofs=own.length?own:all.slice(0,6);
+    const own=egid?all.filter(r=>String(props(r).gwr_egid)===egid):[];
+    const roofs=own.length?own:(hit.fromClick?[]:all.slice(0,6));
     const sum=roofs.reduce((t,r)=>t+(+props(r).stromertrag||0),0);
     if(sum) out.solar=Math.round(sum/100)*100;
     out.roofs=roofs.flatMap(r=>{const g=r.geometry;
       const rings=g?.type==="Polygon"?[g.coordinates[0]]:g?.type==="MultiPolygon"?g.coordinates.map(p=>p[0]):[];
       return rings.map(ring=>ring.map(([x,y])=>[x-hit.e,y-hit.n]));});
   }catch(e){}
+  if(!out.label) out.label = out.parzelle ? `Parzelle ${out.parzelle}${out.gemeinde?", "+out.gemeinde:""}` : "Ausgewählte Parzelle";
   onStep(4);
   return out;
 }
@@ -301,6 +323,7 @@ function evaluate(d){
     else if(age>=35){s+=20; sig.push(["plus",`Gebäude ist ${age} Jahre alt, eine grössere Erneuerung steht in den nächsten Jahren an.`]);}
     else if(age>=20){s+=10; sig.push(["neut",`Gebäude ist ${age} Jahre alt.`]);}
     else sig.push(["neut",`Gebäude ist erst ${age} Jahre alt.`]); }
+  if(d.empty){ s+=50; sig.push(["plus","Auf dieser Parzelle ist kein Gebäude erfasst. Unbebautes Land in der Bauzone hat das grösste Entwicklungspotenzial."]); }
   const gf = d.footprint&&d.floors ? d.footprint*d.floors : null;
   if(gf&&d.parcelArea){ const r=gf/d.parcelArea; d.ratio=r;
     if(r<0.4){s+=30; sig.push(["plus","Die bestehende Geschossfläche nutzt die Parzelle nur wenig. Hier ist oft deutlich mehr Wohnfläche möglich."]);}
@@ -354,10 +377,11 @@ function gaugeSVG(v){
 
 function render(d){
   const ev=evaluate(d);
+  const useMap = !d.demo && !!d.parcel && !!window.maplibregl && d.e!=null;
   const gf=d.footprint&&d.floors?d.footprint*d.floors:null;
   const facts=[
     ["Parzelle", d.parcelArea?`${fmt(d.parcelArea)} m²`:"–", d.parzelle?`Nr. ${esc(d.parzelle)}${d.gemeinde?", "+esc(d.gemeinde):""}`:""],
-    ["Gebäude", esc(d.klasse||"–"), d.year?`Baujahr ${d.year}`:d.yearApprox?(d.yearApprox<1919?"Baujahr vor 1919":`Baujahr ca. ${d.yearApprox}`):""],
+    ["Gebäude", d.empty?"Unbebaut":esc(d.klasse||"–"), d.year?`Baujahr ${d.year}`:d.yearApprox?(d.yearApprox<1919?"Baujahr vor 1919":`Baujahr ca. ${d.yearApprox}`):""],
     ["Geschossfläche (ca.)", gf?`${fmt(gf)} m²`:"–", d.floors?`${d.floors} Geschosse${d.units?` · ${d.units} Whg.`:""}`:""],
     ["Bauzone", esc(d.zone||"–"), "Bundesweit harmonisiert"],
     ["ÖV-Güteklasse", d.oev||"–", d.oev?{A:"sehr gut",B:"gut",C:"mittel",D:"gering"}[d.oev]+"e Erschliessung":""],
@@ -372,17 +396,19 @@ function render(d){
       <div><div class="eyebrow">${d.demo?"Beispielauswertung":"Ihre Auswertung"}</div><h2>${esc(d.label)}</h2></div>
       ${d.demo?'<span class="demo-tag">Fiktive Beispieldaten</span>':""}
     </div>
-    <div class="top">
-      <figure class="plan" style="margin:0">${planSVG(d)}<figcaption>Parzelle aus der amtlichen Vermessung${(d.bldg||d.roofs?.length)?", Dachflächen rot":""}</figcaption></figure>
+    ${useMap?`<div class="mapband"><div id="mapSlot"></div><div class="hint">Nachbarparzelle anklicken, um sie zu prüfen</div></div>`:""}
+    <div class="top${useMap?" solo":""}">
+      ${useMap?"":`<figure class="plan" style="margin:0">${planSVG(d)}<figcaption>Parzelle aus der amtlichen Vermessung${(d.bldg||d.roofs?.length)?", Dachflächen rot":""}</figcaption></figure>`}
       <div class="score">
-        <div class="gauge">${gaugeSVG(ev.score)}<div class="num"><strong>${ev.score}</strong><span>von 100</span></div></div>
-        <div class="level">${ev.level}</div>
+        <div class="score-main"><div class="gauge">${gaugeSVG(ev.score)}<div class="num"><strong>${ev.score}</strong><span>von 100</span></div></div>
+        <div class="level">${ev.level}</div></div>
         <ul class="signals">${ev.signals.map(([t,x])=>`<li><span class="pill ${t}">${t==="plus"?"Plus":"Info"}</span><span>${x}</span></li>`).join("")}</ul>
       </div>
     </div>
     <dl class="facts" style="margin:0">${facts.map(([k,v,s])=>`<div class="fact"><dt>${k}</dt><dd>${v}${s?`<small>${s}</small>`:""}</dd></div>`).join("")}</dl>
     <div class="note">Die zulässige Ausnützung legt Ihre Gemeinde in der Bau- und Zonenordnung fest. Diese Werte sind in den Bundesdaten nicht enthalten. Für eine verbindliche Einschätzung prüfen wir das Grundstück persönlich.</div>
   </article>`;
+  if(useMap) attachMap(document.getElementById("mapSlot"), d);
   renderLead(d, ev);
 }
 
@@ -436,6 +462,88 @@ function renderLead(d, ev){
     }
     fitFrame();
   });
+}
+
+/* ---------- Karte (MapLibre, swisstopo-Grundkarte, Katasterplan der Kantone) ---------- */
+/* Näherungsformeln von swisstopo (Genauigkeit ca. 1 m), reichen für die Darstellung und für Klicks */
+function lv95ToWgs(E,N){
+  const y=(E-2600000)/1e6, x=(N-1200000)/1e6;
+  const lam=2.6779094+4.728982*y+0.791484*y*x+0.1306*y*x*x-0.0436*y*y*y;
+  const phi=16.9023892+3.238272*x-0.270978*y*y-0.002528*x*x-0.0447*y*y*x-0.0140*x*x*x;
+  return [lam*100/36, phi*100/36];
+}
+function wgsToLv95(lng,lat){
+  const p=(lat*3600-169028.66)/10000, l=(lng*3600-26782.5)/10000;
+  return [2600072.37+211455.93*l-10938.51*l*p-0.36*l*p*p-44.54*l*l*l,
+          1200147.07+308807.95*p+3745.25*l*l+76.63*p*p-194.56*l*l*p+119.79*p*p*p];
+}
+let map=null, mapEl=null, mapReady=null, mapBusy=false, mapFirst=true;
+const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function createMap(){
+  mapEl=document.createElement("div"); mapEl.className="map";
+  return mapEl;
+}
+function initMap(){
+  map=new maplibregl.Map({
+    container:mapEl,
+    style:"https://vectortiles.geo.admin.ch/styles/ch.swisstopo.lightbasemap.vt/style.json",
+    center:[8.23,46.8], zoom:7, maxZoom:20,
+    attributionControl:false, dragRotate:false, pitchWithRotate:false, touchPitch:false,
+    cooperativeGestures:true,
+    locale:{
+      "NavigationControl.ZoomIn":"Hineinzoomen","NavigationControl.ZoomOut":"Herauszoomen",
+      "CooperativeGesturesHandler.WindowsHelpText":"Zum Zoomen Strg + Scrollen verwenden",
+      "CooperativeGesturesHandler.MacHelpText":"Zum Zoomen ⌘ + Scrollen verwenden",
+      "CooperativeGesturesHandler.MobileHelpText":"Karte mit zwei Fingern bewegen"
+    }
+  });
+  map.touchZoomRotate.disableRotation();
+  map.addControl(new maplibregl.NavigationControl({showCompass:false}),"top-right");
+  map.addControl(new maplibregl.AttributionControl({compact:true,
+    customAttribution:'© <a href="https://www.swisstopo.admin.ch" target="_blank" rel="noopener">swisstopo</a>, Amtliche Vermessung der Kantone'}),"bottom-right");
+  mapReady=new Promise(res=>map.on("load",()=>{
+    map.addSource("av",{type:"raster",tileSize:256,minzoom:12,maxzoom:19,
+      tiles:["https://wmts.geo.admin.ch/1.0.0/ch.kantone.cadastralwebmap-farbe/default/current/3857/{z}/{x}/{y}.png"]});
+    map.addLayer({id:"av",type:"raster",source:"av",minzoom:15,paint:{"raster-opacity":0.8}});
+    map.addSource("sel",{type:"geojson",data:{type:"FeatureCollection",features:[]}});
+    const acc=cssVar("--accent")||"#1E6A4E";
+    map.addLayer({id:"parcel-fill",type:"fill",source:"sel",filter:["==",["get","k"],"parcel"],paint:{"fill-color":acc,"fill-opacity":0.22}});
+    map.addLayer({id:"roof",type:"fill",source:"sel",filter:["==",["get","k"],"roof"],paint:{"fill-color":cssVar("--bldg-line")||"#B5605B","fill-opacity":0.55}});
+    map.addLayer({id:"parcel-line",type:"line",source:"sel",filter:["==",["get","k"],"parcel"],paint:{"line-color":acc,"line-width":3}});
+    map.on("click",onMapClick);
+    map.getCanvas().style.cursor="pointer";
+    res();
+  }));
+}
+async function attachMap(slot, d){
+  if(!slot) return;
+  if(!mapEl) createMap();
+  slot.replaceWith(mapEl);
+  if(!map) initMap(); else map.resize();
+  await mapReady;
+  map.resize();
+  const abs=r=>r.map(([x,y])=>lv95ToWgs(x+d.e,y+d.n));
+  const ring=abs(d.parcel);
+  const feats=[{type:"Feature",properties:{k:"parcel"},geometry:{type:"Polygon",coordinates:[ring]}}];
+  (d.roofs||[]).forEach(r=>feats.push({type:"Feature",properties:{k:"roof"},geometry:{type:"Polygon",coordinates:[abs(r)]}}));
+  map.getSource("sel").setData({type:"FeatureCollection",features:feats});
+  const lngs=ring.map(p=>p[0]), lats=ring.map(p=>p[1]);
+  const pad=Math.min(70, Math.round(mapEl.clientHeight/5));
+  map.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],
+    {padding:pad, maxZoom:19, duration:mapFirst?0:700});
+  mapFirst=false;
+}
+async function onMapClick(e){
+  if(mapBusy) return;
+  mapBusy=true;
+  const band=mapEl.parentElement, busy=document.createElement("div");
+  busy.className="busy"; busy.innerHTML="<span>Parzelle wird geprüft …</span>"; band.appendChild(busy);
+  try{
+    const [E,N]=wgsToLv95(e.lngLat.lng,e.lngLat.lat);
+    const data=await analyseLive({e:E,n:N,egid:"",label:null,fromClick:true},()=>{});
+    if(data.parcel){ inp.value=data.label; render(data); }
+  }catch(x){}
+  finally{ busy.remove(); mapBusy=false; }
 }
 
 /* ---------- Ablauf ---------- */
