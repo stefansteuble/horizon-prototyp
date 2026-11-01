@@ -4,6 +4,16 @@ import { handleLead } from "./lead.js";
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === "/api/health") {
+      // Zeigt nur, ob Ziele konfiguriert sind, nie die Werte selbst.
+      return Response.json({
+        ok: true,
+        version: "2026-11-01-email",
+        email: !!(env.RESEND_API_KEY && env.LEAD_EMAIL_TO),
+        webhook: !!env.LEAD_WEBHOOK_URL,
+        kv: !!env.LEADS,
+      }, { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname === "/api/lead") {
       if (request.method !== "POST") {
         return new Response("Method Not Allowed", { status: 405, headers: { allow: "POST" } });
