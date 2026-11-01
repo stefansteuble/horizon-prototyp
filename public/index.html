@@ -567,7 +567,8 @@ async function onMapClick(e){
 }
 
 /* ---------- 3D (CesiumJS mit swisstopo-Gelände, -Gebäuden und -Bäumen, nur bei Bedarf geladen) ---------- */
-const CESIUM="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.121.0/";
+// Vollständiges Build inkl. Worker (cdnjs liefert die Worker-Dateien nicht mit)
+const CESIUM="https://cdn.jsdelivr.net/npm/cesium@1.121.0/Build/Cesium/";
 const GEO3D="https://3d.geo.admin.ch/";
 let viewer=null, c3dEl=null, c3dOn=false, cesiumLoading=null, viewerInit=null, fly3dFirst=true;
 function loadCesium(){
@@ -600,7 +601,8 @@ function initViewer(){
   });
   viewer.imageryLayers.addImageryProvider(new C.UrlTemplateImageryProvider({
     url:"https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg",
-    maximumLevel:20, credit:new C.Credit("© swisstopo")}));
+    maximumLevel:20, rectangle:C.Rectangle.fromDegrees(5.8,45.7,10.6,47.9), credit:new C.Credit("© swisstopo")}));
+  viewer.scene.globe.baseColor=C.Color.fromCssColorString("#dfe3dc");
   const sc=viewer.scene;
   sc.globe.depthTestAgainstTerrain=true;
   sc.screenSpaceCameraController.minimumZoomDistance=40;
