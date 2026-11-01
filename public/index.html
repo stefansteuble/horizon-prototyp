@@ -270,12 +270,18 @@ async function analyseLive(hit, onStep){
     const g = await getJSON(identifyUrl(hit.e,hit.n,"ch.bfs.gebaeude_wohnungs_register",hit.fromClick?40:5,false));
     const list=(g.results||[]).map(props);
     let b = egid ? list.find(a=>String(a.egid)===egid) : null;
-    if(!b && out.egrid) b = list.find(a=>a.egrid===out.egrid);
+    if(!b && out.egrid){
+      // Hauptgebäude der Parzelle: zuerst mit Wohnungen, dann Hausnummer ohne ".1" (Nebengebäude), dann grösste Fläche
+      const main = a => [(+a.ganzwhg||0)>0?1:0, /\.\d+$/.test(String(a.deinr||""))?0:1, +a.garea||0];
+      const cmp = (x,y) => { const p=main(x), q=main(y); for(let i=0;i<p.length;i++) if(p[i]!==q[i]) return q[i]-p[i]; return 0; };
+      b = list.filter(a=>a.egrid===out.egrid).sort(cmp)[0] || null;
+    }
     if(!b && !hit.fromClick) b = list[0];
     if(!b && out.parcel && hit.fromClick) out.empty = true;
     if(b){
       egid = String(b.egid||egid);
-      if(hit.fromClick) out.label = `${b.strname_deinr||""}, ${b.dplz4||""} ${b.dplzname||""}`.replace(/^, /,"").trim();
+      // Nebengebäude-Nummern wie "12.1" als "12" anzeigen
+      if(hit.fromClick) out.label = `${String(b.strname_deinr||"").replace(/(\d+[a-zA-Z]?)\.\d+$/,"$1")}, ${b.dplz4||""} ${b.dplzname||""}`.replace(/^, /,"").trim();
       out.year=+b.gbauj||null; out.yearApprox=!b.gbauj&&GBAUP[b.gbaup]||null;
       out.klasse=GKLAS[b.gklas]||GKAT[b.gkat]||null; out.floors=+b.gastw||null;
       out.units=+b.ganzwhg||null; out.footprint=+b.garea||null;
