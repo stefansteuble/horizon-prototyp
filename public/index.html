@@ -150,6 +150,7 @@ footer a{color:inherit}
 .ctl3d{position:absolute;right:10px;top:10px;z-index:4;display:flex;flex-direction:column;gap:6px}
 .ctl3d button{width:34px;height:34px;display:grid;place-items:center;font-size:21px;font-weight:600;line-height:1;color:var(--ink);background:var(--sheet);border:1px solid var(--line);border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.12)}
 .ctl3d button:hover{border-color:var(--accent);color:var(--accent)}
+.ctl3d button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .mapband.is3d .maplibregl-ctrl-top-right{display:none}
 .score-main{display:flex;flex-direction:column;gap:10px}
 .top.solo{grid-template-columns:1fr}
@@ -415,7 +416,7 @@ function render(d){
       <div><div class="eyebrow">${d.demo?"Beispielauswertung":"Ihre Auswertung"}</div><h2>${esc(d.label)}</h2></div>
       ${d.demo?'<span class="demo-tag">Fiktive Beispieldaten</span>':""}
     </div>
-    ${useMap?`<div class="mapband"><div id="mapSlot"></div><button type="button" class="btn3d" id="btn3d" aria-pressed="${c3dOn}">${c3dOn?"2D":"3D"}</button><div class="ctl3d" id="ctl3d" ${c3dOn?"":"hidden"}><button type="button" data-rot="-1" aria-label="Nach links drehen" title="Nach links drehen">⟲</button><button type="button" data-rot="1" aria-label="Nach rechts drehen" title="Nach rechts drehen">⟳</button><button type="button" data-zoom="1" aria-label="Hineinzoomen" title="Hineinzoomen">+</button><button type="button" data-zoom="-1" aria-label="Herauszoomen" title="Herauszoomen">−</button></div><div class="hint" id="mapHint">${c3dOn?HINT3D:HINT2D}</div></div>`:""}
+    ${useMap?`<div class="mapband"><div id="mapSlot"></div><button type="button" class="btn3d" id="btn3d" aria-pressed="${c3dOn}">${c3dOn?"2D":"3D"}</button><div class="ctl3d" id="ctl3d" ${c3dOn?"":"hidden"}><button type="button" data-rot="-1" aria-label="Nach links drehen" title="Nach links drehen">⟲</button><button type="button" data-rot="1" aria-label="Nach rechts drehen" title="Nach rechts drehen">⟳</button><button type="button" data-zoom="1" aria-label="Hineinzoomen" title="Hineinzoomen">+</button><button type="button" data-zoom="-1" aria-label="Herauszoomen" title="Herauszoomen">−</button><button type="button" data-look="1" aria-pressed="${look.usePhoto}" aria-label="${look.usePhoto?"Planansicht":"Luftbild"}" title="${look.usePhoto?"Planansicht":"Luftbild"}">◐</button></div><div class="hint" id="mapHint">${c3dOn?HINT3D:HINT2D}</div></div>`:""}
     <div class="top${useMap?" solo":""}">
       ${useMap?"":`<figure class="plan" style="margin:0">${planSVG(d)}<figcaption>Parzelle aus der amtlichen Vermessung${(d.bldg||d.roofs?.length)?", Dachflächen rot":""}</figcaption></figure>`}
       <div class="score">
@@ -436,6 +437,7 @@ function render(d){
       const C=Cesium, cam=viewer.camera;
       if(t.dataset.rot) cam.rotateRight(C.Math.toRadians(30)*+t.dataset.rot);
       if(t.dataset.zoom){ const dist=C.Cartesian3.magnitude(cam.position); cam.zoomIn(dist*0.25*+t.dataset.zoom); }
+      if(t.dataset.look){ look.usePhoto=!look.usePhoto; applyLook(); }
       viewer.scene.requestRender();
     });
     if(c3dOn) document.querySelector(".mapband").classList.add("is3d");
@@ -615,11 +617,33 @@ function initViewer(){
     sceneModePicker:false, navigationHelpButton:false, fullscreenButton:false, infoBox:false, selectionIndicator:false,
     requestRenderMode:true, maximumRenderTimeChange:Infinity
   });
-  viewer.imageryLayers.addImageryProvider(new C.UrlTemplateImageryProvider({
-    url:"https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg",
-    maximumLevel:20, rectangle:C.Rectangle.fromDegrees(5.8,45.7,10.6,47.9), credit:new C.Credit("© swisstopo")}));
-  viewer.scene.globe.baseColor=C.Color.fromCssColorString("#dfe3dc");
+  // Zwei Looks: "Plan" (hell, wie ein Architekturmodell) und "Luftbild"
+  const CH=C.Rectangle.fromDegrees(5.8,45.7,10.6,47.9), cr=new C.Credit("© swisstopo");
+  const wmts=(id,ext,min,max)=>new C.UrlTemplateImageryProvider({
+    url:`https://wmts.geo.admin.ch/1.0.0/${id}/default/current/3857/{z}/{x}/{y}.${ext}`,
+    minimumLevel:min, maximumLevel:max, rectangle:CH, credit:cr});
+  const IL=viewer.imageryLayers;
+  look.plan=[IL.addImageryProvider(wmts("ch.swisstopo.pixelkarte-grau","jpeg",0,18)),
+             IL.addImageryProvider(wmts("ch.swisstopo.landeskarte-grau-10","png",15,19))];
+  look.plan.forEach(l=>{ l.brightness=1.22; l.contrast=0.72; l.saturation=0; l.gamma=1.05; });
+  look.photo=IL.addImageryProvider(wmts("ch.swisstopo.swissimage","jpeg",0,20));
   const sc=viewer.scene;
+  sc.globe.baseColor=C.Color.fromCssColorString("#eef0ec");
+  sc.globe.showGroundAtmosphere=false;
+  sc.backgroundColor=C.Color.fromCssColorString("#eef0ec");
+  sc.fog.density=0.00012;
+  // Weiche, feste "Sonne" von Südwesten, unabhängig von Datum und Uhrzeit
+  // Richtung im lokalen Ost-Nord-Oben-System der Schweiz, dann in Weltkoordinaten umrechnen
+  const enu=C.Transforms.eastNorthUpToFixedFrame(C.Cartesian3.fromDegrees(8.2,46.8));
+  const dir=C.Matrix4.multiplyByPointAsVector(enu, new C.Cartesian3(0.45,0.55,-0.7), new C.Cartesian3());
+  sc.light=new C.DirectionalLight({direction:C.Cartesian3.normalize(dir,dir), intensity:2.6});
+  // Gebäude als helle Tonmodelle, Bäume in frischem Grün (überschreibt die Fototexturen)
+  look.clayBuildings=new C.CustomShader({lightingModel:C.LightingModel.PBR,
+    fragmentShaderText:`void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material){
+      material.diffuse = vec3(0.93, 0.93, 0.91); material.specular = vec3(0.02); material.roughness = 1.0; }`});
+  look.clayTrees=new C.CustomShader({lightingModel:C.LightingModel.PBR,
+    fragmentShaderText:`void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material){
+      material.diffuse = vec3(0.36, 0.62, 0.30); material.specular = vec3(0.0); material.roughness = 1.0; }`});
   sc.globe.depthTestAgainstTerrain=true;
   sc.screenSpaceCameraController.minimumZoomDistance=40;
   sc.screenSpaceCameraController.maximumZoomDistance=3000;
@@ -630,11 +654,11 @@ function initViewer(){
   return (async()=>{
     try{ viewer.terrainProvider=await C.CesiumTerrainProvider.fromUrl(GEO3D+"ch.swisstopo.terrain.3d/v1/"); }catch(e){}
     try{
-      const b=await C.Cesium3DTileset.fromUrl(GEO3D+"ch.swisstopo.swissbuildings3d.3d/v1/tileset.json");
-      b.style=new C.Cesium3DTileStyle({color:"color('#f3f2ee')"});
-      sc.primitives.add(b);
+      look.buildings=await C.Cesium3DTileset.fromUrl(GEO3D+"ch.swisstopo.swissbuildings3d.3d/v1/tileset.json");
+      sc.primitives.add(look.buildings);
     }catch(e){}
-    try{ sc.primitives.add(await C.Cesium3DTileset.fromUrl(GEO3D+"ch.swisstopo.vegetation.3d/v1/tileset.json")); }catch(e){}
+    try{ look.trees=await C.Cesium3DTileset.fromUrl(GEO3D+"ch.swisstopo.vegetation.3d/v1/tileset.json"); sc.primitives.add(look.trees); }catch(e){}
+    applyLook();
     viewer.screenSpaceEventHandler.setInputAction(ev=>{
       const cart=sc.pickPosition(ev.position)||viewer.camera.pickEllipsoid(ev.position);
       if(!cart) return;
@@ -642,6 +666,18 @@ function initViewer(){
       onMapClick({lngLat:{lng:C.Math.toDegrees(c.longitude),lat:C.Math.toDegrees(c.latitude)}});
     }, C.ScreenSpaceEventType.LEFT_CLICK);
   })();
+}
+const look={photo:null, plan:[], buildings:null, trees:null, clayBuildings:null, clayTrees:null, usePhoto:false};
+function applyLook(){
+  if(!viewer) return;
+  const ph=look.usePhoto;
+  if(look.photo) look.photo.show=ph;
+  look.plan.forEach(l=>l.show=!ph);
+  if(look.buildings) look.buildings.customShader = ph ? undefined : look.clayBuildings;
+  if(look.trees) look.trees.customShader = ph ? undefined : look.clayTrees;
+  const btn=document.querySelector('#ctl3d [data-look]');
+  if(btn){ btn.setAttribute("aria-pressed", String(ph)); btn.title = ph ? "Planansicht" : "Luftbild"; btn.setAttribute("aria-label", btn.title); }
+  viewer.scene.requestRender();
 }
 async function show3D(d){
   const band=document.querySelector(".mapband"); if(!band) return;
