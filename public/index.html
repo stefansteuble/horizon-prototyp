@@ -138,6 +138,12 @@ footer a{color:inherit}
 .mapband .busy span{background:var(--sheet);border:1px solid var(--line);border-radius:99px;padding:8px 14px;font-size:13px;display:flex;gap:8px;align-items:center}
 .mapband .busy span::before{content:"";width:12px;height:12px;border-radius:50%;border:2px solid var(--accent);border-top-color:transparent;animation:spin .8s linear infinite}
 .maplibregl-ctrl-attrib{font-size:11px}
+.c3d{position:absolute;inset:0;z-index:1;background:var(--paper)}
+.c3d .cesium-widget-credits{font-size:10px}
+.btn3d{position:absolute;left:12px;top:12px;z-index:4;font:600 13px/1 var(--f-body);color:var(--ink);background:var(--sheet);border:1px solid var(--line);border-radius:8px;padding:9px 12px;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.btn3d:hover{border-color:var(--accent);color:var(--accent)}
+.btn3d[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn3d:disabled{opacity:.7;cursor:progress}
 .score-main{display:flex;flex-direction:column;gap:10px}
 .top.solo{grid-template-columns:1fr}
 .top.solo .score{display:grid;grid-template-columns:minmax(180px,240px) 1fr;gap:12px 28px;align-items:center}
@@ -402,7 +408,7 @@ function render(d){
       <div><div class="eyebrow">${d.demo?"Beispielauswertung":"Ihre Auswertung"}</div><h2>${esc(d.label)}</h2></div>
       ${d.demo?'<span class="demo-tag">Fiktive Beispieldaten</span>':""}
     </div>
-    ${useMap?`<div class="mapband"><div id="mapSlot"></div><div class="hint">Nachbarparzelle anklicken, um sie zu prüfen</div></div>`:""}
+    ${useMap?`<div class="mapband"><div id="mapSlot"></div><button type="button" class="btn3d" id="btn3d" aria-pressed="${c3dOn}">${c3dOn?"2D":"3D"}</button><div class="hint">Nachbarparzelle anklicken, um sie zu prüfen</div></div>`:""}
     <div class="top${useMap?" solo":""}">
       ${useMap?"":`<figure class="plan" style="margin:0">${planSVG(d)}<figcaption>Parzelle aus der amtlichen Vermessung${(d.bldg||d.roofs?.length)?", Dachflächen rot":""}</figcaption></figure>`}
       <div class="score">
@@ -414,7 +420,12 @@ function render(d){
     <dl class="facts" style="margin:0">${facts.map(([k,v,s])=>`<div class="fact"><dt>${k}</dt><dd>${v}${s?`<small>${s}</small>`:""}</dd></div>`).join("")}</dl>
     <div class="note">Die zulässige Ausnützung legt Ihre Gemeinde in der Bau- und Zonenordnung fest. Diese Werte sind in den Bundesdaten nicht enthalten. Für eine verbindliche Einschätzung prüfen wir das Grundstück persönlich.</div>
   </article>`;
-  if(useMap) attachMap(document.getElementById("mapSlot"), d);
+  if(useMap){
+    attachMap(document.getElementById("mapSlot"), d);
+    const b3=document.getElementById("btn3d");
+    b3.addEventListener("click",()=>toggle3D(d,b3));
+    if(c3dOn) show3D(d).catch(()=>{});
+  }
   renderLead(d, ev);
 }
 
@@ -550,6 +561,84 @@ async function onMapClick(e){
     if(data.parcel){ inp.value=data.label; render(data); }
   }catch(x){}
   finally{ busy.remove(); mapBusy=false; }
+}
+
+/* ---------- 3D (CesiumJS mit swisstopo-Gelände, -Gebäuden und -Bäumen, nur bei Bedarf geladen) ---------- */
+const CESIUM="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.121.0/";
+const GEO3D="https://3d.geo.admin.ch/";
+let viewer=null, c3dEl=null, c3dOn=false, cesiumLoading=null, viewerInit=null;
+function loadCesium(){
+  if(window.Cesium) return Promise.resolve();
+  if(cesiumLoading) return cesiumLoading;
+  window.CESIUM_BASE_URL=CESIUM;
+  const css=document.createElement("link"); css.rel="stylesheet"; css.href=CESIUM+"Widgets/widgets.css"; document.head.appendChild(css);
+  cesiumLoading=new Promise((res,rej)=>{
+    const sc=document.createElement("script"); sc.src=CESIUM+"Cesium.js";
+    sc.onload=res; sc.onerror=()=>{ cesiumLoading=null; rej(new Error("Cesium nicht geladen")); };
+    document.head.appendChild(sc);
+  });
+  return cesiumLoading;
+}
+async function toggle3D(d,btn){
+  if(c3dOn){ c3dOn=false; if(c3dEl) c3dEl.hidden=true; btn.textContent="3D"; btn.setAttribute("aria-pressed","false"); return; }
+  btn.disabled=true; btn.textContent="3D lädt …";
+  try{
+    await loadCesium(); c3dOn=true; await show3D(d);
+    btn.textContent="2D"; btn.setAttribute("aria-pressed","true");
+  }catch(e){ c3dOn=false; if(c3dEl) c3dEl.hidden=true; btn.textContent="3D nicht verfügbar"; }
+  finally{ btn.disabled=false; }
+}
+function initViewer(){
+  const C=Cesium;
+  viewer=new C.Viewer(c3dEl,{
+    baseLayer:false, animation:false, timeline:false, baseLayerPicker:false, geocoder:false, homeButton:false,
+    sceneModePicker:false, navigationHelpButton:false, fullscreenButton:false, infoBox:false, selectionIndicator:false,
+    requestRenderMode:true, maximumRenderTimeChange:Infinity
+  });
+  viewer.imageryLayers.addImageryProvider(new C.UrlTemplateImageryProvider({
+    url:"https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg",
+    maximumLevel:20, credit:new C.Credit("© swisstopo")}));
+  const sc=viewer.scene;
+  sc.globe.depthTestAgainstTerrain=true;
+  sc.screenSpaceCameraController.minimumZoomDistance=40;
+  sc.screenSpaceCameraController.maximumZoomDistance=3000;
+  viewer.scene.skyAtmosphere.show=true;
+  return (async()=>{
+    try{ viewer.terrainProvider=await C.CesiumTerrainProvider.fromUrl(GEO3D+"ch.swisstopo.terrain.3d/v1/"); }catch(e){}
+    try{
+      const b=await C.Cesium3DTileset.fromUrl(GEO3D+"ch.swisstopo.swissbuildings3d.3d/v1/tileset.json");
+      b.style=new C.Cesium3DTileStyle({color:"color('#f3f2ee')"});
+      sc.primitives.add(b);
+    }catch(e){}
+    try{ sc.primitives.add(await C.Cesium3DTileset.fromUrl(GEO3D+"ch.swisstopo.vegetation.3d/v1/tileset.json")); }catch(e){}
+    viewer.screenSpaceEventHandler.setInputAction(ev=>{
+      const cart=sc.pickPosition(ev.position)||viewer.camera.pickEllipsoid(ev.position);
+      if(!cart) return;
+      const c=C.Cartographic.fromCartesian(cart);
+      onMapClick({lngLat:{lng:C.Math.toDegrees(c.longitude),lat:C.Math.toDegrees(c.latitude)}});
+    }, C.ScreenSpaceEventType.LEFT_CLICK);
+  })();
+}
+async function show3D(d){
+  const band=document.querySelector(".mapband"); if(!band) return;
+  if(!c3dEl){ c3dEl=document.createElement("div"); c3dEl.className="c3d"; }
+  band.appendChild(c3dEl); c3dEl.hidden=false;
+  if(!viewer) viewerInit=initViewer();
+  await viewerInit;
+  const C=Cesium;
+  viewer.entities.removeAll();
+  const ring=d.parcel.map(([x,y])=>lv95ToWgs(x+d.e,y+d.n));
+  const pos=C.Cartesian3.fromDegreesArray(ring.flat());
+  const acc=C.Color.fromCssColorString(cssVar("--accent")||"#1E6A4E");
+  viewer.entities.add({polygon:{hierarchy:pos, material:acc.withAlpha(0.35), classificationType:C.ClassificationType.BOTH}});
+  viewer.entities.add({polyline:{positions:pos.concat([pos[0]]), width:4, clampToGround:true, material:acc}});
+  const cx=ring.reduce((t,p)=>t+p[0],0)/ring.length, cy=ring.reduce((t,p)=>t+p[1],0)/ring.length;
+  let h=400;
+  try{ const [p]=await C.sampleTerrainMostDetailed(viewer.terrainProvider,[C.Cartographic.fromDegrees(cx,cy)]); if(p&&isFinite(p.height)) h=p.height; }catch(e){}
+  const r=Math.max(15, Math.sqrt(d.parcelArea||400)*0.8);
+  viewer.camera.flyToBoundingSphere(new C.BoundingSphere(C.Cartesian3.fromDegrees(cx,cy,h+6), r),
+    {offset:new C.HeadingPitchRange(C.Math.toRadians(-25), C.Math.toRadians(-32), Math.max(140, r*6)), duration:1.4});
+  viewer.scene.requestRender();
 }
 
 /* ---------- Ablauf ---------- */
