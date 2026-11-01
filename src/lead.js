@@ -125,6 +125,7 @@ function emailHtml(l) {
     ${row("ÖV-Güteklasse", e(f.oev))}
     ${row("Heizung", e(f.heat))}
     ${row("Solarstrom Dach", f.solar ? `${e(num(f.solar))} kWh/Jahr` : "–")}
+    ${f.landValue ? row("Landwert*", `<b style="color:#1E6A4E">${e(f.landValue)}</b> (Residualwert, Richtwert)`) : ""}
     ${f.reserve || f.gfMax ? row("Ausbau-Reserve*", `<b style="color:#A4501A">${e(f.reserve)}</b>${f.gfMax ? ` · zulässig ${e(f.gfMax)}` : ""}${f.units ? ` · ${e(f.units)} Whg.` : ""}`) : ""}
   </table>
   ${f.reserve || f.gfMax ? `<p style="margin:10px 0 0;font-size:12px;color:#5B6862">* ${f.simRules ? e(f.simRules) + ". " : ""}Schätzung, nicht nach der Bauordnung der Gemeinde geprüft.</p>` : ""}
@@ -167,7 +168,7 @@ function str(v, max) {
 function sanitizeFacts(f) {
   if (!f || typeof f !== "object") return {};
   const out = {};
-  for (const k of ["parcelArea", "year", "klasse", "floors", "zone", "oev", "heat", "solar", "reserve", "gfMax", "units", "simRules"]) {
+  for (const k of ["parcelArea", "year", "klasse", "floors", "zone", "oev", "heat", "solar", "reserve", "gfMax", "units", "simRules", "landValue"]) {
     const v = f[k];
     out[k] = typeof v === "number" ? v : str(v, 80);
   }

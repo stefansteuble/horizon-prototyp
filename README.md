@@ -92,6 +92,17 @@ Der Score (0 bis 100) ist ein Indikator, kein Gutachten. Er steht in `evaluate()
 
 Die zulässige Ausnützung (AZ, ÜZ, BMZ) ist kommunal geregelt und nicht in den Bundesdaten enthalten. Die App sagt das den Nutzern auch so.
 
+## Landwert (Residualwert)
+
+Landwert = Verkaufserlös Neubau − Baukosten − Nebenkosten und Entwicklermarge (20 % des Erlöses) − Rückbau.
+
+- Mögliche Fläche: aus der Bebauungssimulation (Wohnfläche = 80 % der Geschossfläche)
+- Verkaufspreis: durchschnittliche Wohnungspreise pro m² laut [RealAdvisor](https://realadvisor.ch/de/immobilienpreise-pro-m2) (Stand September 2026), für 75 Zürcher Gemeinden pro Gemeinde (`PRICE_ZH`), sonst pro Kanton (`PRICE_KT`) mit Lagefaktor nach ÖV-Güteklasse; +10 % Neubauzuschlag
+- Baukosten: CHF 3'800–4'600 pro m² Geschossfläche (Basis Zürich), regional leicht angepasst
+- Alle Preise lassen sich in der App überschreiben. Die Tabellen in `public/index.html` sollten jährlich aktualisiert werden.
+
+Unverbindlicher Richtwert, keine Verkehrswertschätzung. Für den Echtbetrieb empfiehlt sich eine Bewertungs-API (IAZI, Wüest Partner, PriceHubble).
+
 ## Anpassen
 
 - Firmenname: `MUSTER ENTWICKLUNG AG` in `public/index.html`
