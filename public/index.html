@@ -143,7 +143,14 @@ footer a{color:inherit}
 .sim-tile dd small{display:block;font-family:var(--f-body);font-stretch:100%;font-weight:400;font-size:12.5px;color:var(--muted);margin-top:4px}
 .sim-note{margin:0;font-size:12.5px;color:var(--muted)}
 .sim-tag{font-family:var(--f-mono);font-size:11px;color:var(--sim-ink);border:1px solid var(--sim);border-radius:4px;padding:2px 6px}
-@media (max-width:620px){ .sim-grid{grid-template-columns:1fr} }
+.sim-edit{justify-self:start;background:none;border:0;padding:0;font:600 13.5px var(--f-body);color:var(--sim-ink);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.sim-form{display:grid;grid-template-columns:repeat(3,1fr) auto;gap:10px 12px;align-items:end;padding:14px;border:1px dashed var(--sim);border-radius:8px;background:var(--sim-soft)}
+.sim-form label{display:block;font-size:12.5px;font-weight:600;margin-bottom:4px}
+.sim-form input{padding:9px 11px;font-variant-numeric:tabular-nums}
+.sim-form .hint2{grid-column:1/-1;margin:0;font-size:12px;color:var(--muted)}
+.sim-reset{background:var(--sheet);border:1px solid var(--line);border-radius:var(--r);padding:9px 12px;font:600 13px var(--f-body);color:var(--ink)}
+.sim-reset:hover{border-color:var(--sim);color:var(--sim-ink)}
+@media (max-width:620px){ .sim-grid{grid-template-columns:1fr} .sim-form{grid-template-columns:1fr 1fr} }
 /* Karte */
 .mapband{position:relative;border-bottom:1px solid var(--line);background:var(--paper)}
 .map{height:360px;width:100%}
@@ -366,6 +373,25 @@ function zoneRules(d){
   if(c===12||/arbeit|gewerbe|industrie/.test(z)) return ZONE_RULES.arbeit;
   return null;
 }
+/* Eigene Werte (z.B. bekannte Ausnützungsziffer) gelten für alle Parzellen derselben Zone in derselben Gemeinde */
+const simOverride = {};
+const simKey = d => `${d.gemeinde||""}|${d.zoneCode||d.zone||""}`;
+function effectiveRules(d){
+  const base=zoneRules(d), o=simOverride[simKey(d)];
+  if(!o) return base;
+  const r=Object.assign({}, base||{name:"diese Zone", abstand:5, geschosse:3, az:[0.6,0.6]});
+  if(o.abstand!=null) r.abstand=o.abstand;
+  if(o.geschosse!=null) r.geschosse=o.geschosse;
+  if(o.az) r.az=o.az;
+  r.custom=true;
+  return r;
+}
+function parseAz(v){
+  const nums=String(v||"").replace(/,/g,".").split(/\s*[-–—]\s*|\s+bis\s+/).map(Number).filter(n=>isFinite(n)&&n>0&&n<=6);
+  if(!nums.length) return null;
+  return [Math.min(...nums), Math.max(...nums)];
+}
+const num2 = v => v.toFixed(2).replace(".",",").replace(/0$/,"");
 function signedArea(r){ let a=0; for(let i=0;i<r.length;i++){ const [x1,y1]=r[i],[x2,y2]=r[(i+1)%r.length]; a+=x1*y2-x2*y1; } return a/2; }
 function cleanRing(r){
   let out=r.slice(); if(out.length>1){ const a=out[0],b=out[out.length-1]; if(a[0]===b[0]&&a[1]===b[1]) out.pop(); }
@@ -408,7 +434,7 @@ function scaleRing(r,f){ const cx=r.reduce((t,p)=>t+p[0],0)/r.length, cy=r.reduc
   return r.map(([x,y])=>[cx+(x-cx)*f, cy+(y-cy)*f]); }
 const rangeFmt=(a,b,unit="")=>{ const A=Math.round(a), B=Math.round(b); return (A===B?fmt(A):`${fmt(A)}–${fmt(B)}`)+unit; };
 function simulate(d){
-  const rules=zoneRules(d);
+  const rules=effectiveRules(d);
   if(!rules||!d.parcel||!d.parcelArea) return null;
   const area=d.parcelArea;
   const foot=insetRing(d.parcel, rules.abstand);
@@ -458,6 +484,10 @@ function evaluate(d, sim){
   if(d.oev){ s+= {A:10,B:10,C:6,D:3}[d.oev]||0;
     if("AB".includes(d.oev)) sig.push(["plus",`ÖV-Güteklasse ${d.oev}: gute Anbindung erhöht die Nachfrage nach Wohnungen.`]); }
   if(d.fossil){ s+=10; sig.push(["plus",`Heizung mit ${d.heat}: Ein Heizungsersatz ist ein guter Zeitpunkt, um über das ganze Gebäude nachzudenken.`]); }
+  if(sim&&sim.reserve&&sim.reserve[1]<10){
+    s=Math.min(s,40);
+    sig.unshift(["neut", sim.rules.custom ? "Mit Ihren Werten ist die zulässige Geschossfläche bereits ausgeschöpft." : "Nach den Standardwerten ist die zulässige Geschossfläche bereits ausgeschöpft. Mit den Werten Ihrer Gemeinde kann das anders aussehen."]);
+  }
   s=Math.min(100,s);
   const level = s>=65?"Hohes Potenzial":s>=40?"Mittleres Potenzial":"Geringes Potenzial";
   return {score:s, level, signals:sig.slice(0,4)};
@@ -524,12 +554,12 @@ function render(d){
     <div class="top${useMap?" solo":""}">
       ${useMap?"":`<figure class="plan" style="margin:0">${planSVG(d)}<figcaption>Parzelle aus der amtlichen Vermessung${(d.bldg||d.roofs?.length)?", Dachflächen rot":""}</figcaption></figure>`}
       <div class="score">
-        <div class="score-main"><div class="gauge">${gaugeSVG(ev.score)}<div class="num"><strong>${ev.score}</strong><span>von 100</span></div></div>
+        <div class="score-main" id="scoreMain"><div class="gauge">${gaugeSVG(ev.score)}<div class="num"><strong>${ev.score}</strong><span>von 100</span></div></div>
         <div class="level">${ev.level}</div></div>
-        <ul class="signals">${ev.signals.map(([t,x])=>`<li><span class="pill ${t}">${t==="plus"?"Plus":"Info"}</span><span>${x}</span></li>`).join("")}</ul>
+        <ul class="signals" id="scoreSignals">${ev.signals.map(([t,x])=>`<li><span class="pill ${t}">${t==="plus"?"Plus":"Info"}</span><span>${x}</span></li>`).join("")}</ul>
       </div>
     </div>
-    ${simBlock(sim)}
+    ${simBlock(sim, d)}
     <dl class="facts" style="margin:0">${facts.map(([k,v,s])=>`<div class="fact"><dt>${k}</dt><dd>${v}${s?`<small>${s}</small>`:""}</dd></div>`).join("")}</dl>
     <div class="note">Die zulässige Ausnützung legt Ihre Gemeinde in der Bau- und Zonenordnung fest. Diese Werte sind in den Bundesdaten nicht enthalten. Für eine verbindliche Einschätzung prüfen wir das Grundstück persönlich.</div>
   </article>`;
@@ -548,25 +578,83 @@ function render(d){
     if(c3dOn) document.querySelector(".mapband").classList.add("is3d");
     if(c3dOn) show3D(d).catch(()=>{});
   }
+  wireSim(d);
   renderLead(d, ev);
 }
 
-function simBlock(sim){
-  if(!sim) return "";
-  const r=sim.rules, az=r.az.map(v=>v.toFixed(2).replace(".",",")).join("–");
-  const note=`Annahmen für ${r.name}: Grenzabstand ${r.abstand} m, max. ${r.geschosse} Geschosse, Ausnützungsziffer ${az}. Die Bau- und Zonenordnung Ihrer Gemeinde kann davon abweichen.`;
-  if(sim.tooSmall) return `<section class="sim"><div class="sim-head"><div class="eyebrow">Bebauungssimulation</div><span class="sim-tag">Schätzung</span></div>
-    <p class="sim-note">Nach Abzug der Grenzabstände bleibt auf dieser Parzelle keine sinnvolle bebaubare Fläche. ${note}</p></section>`;
-  const res=simText(sim);
-  return `<section class="sim">
-    <div class="sim-head"><div class="eyebrow">Bebauungssimulation</div><span class="sim-tag">Schätzung mit Standardwerten</span></div>
-    <dl class="sim-grid" style="margin:0">
-      <div class="sim-tile key"><dt>Ausbau-Reserve</dt><dd>${res||"–"}<small>${res?"der zulässigen Geschossfläche ungenutzt":"bestehende Fläche unbekannt"}</small></dd></div>
+function scoreMainHtml(ev){ return `<div class="gauge">${gaugeSVG(ev.score)}<div class="num"><strong>${ev.score}</strong><span>von 100</span></div></div><div class="level">${ev.level}</div>`; }
+function signalsHtml(ev){ return ev.signals.map(([t,x])=>`<li><span class="pill ${t}">${t==="plus"?"Plus":"Info"}</span><span>${x}</span></li>`).join(""); }
+
+function simBodyHtml(sim, d){
+  const rules=effectiveRules(d);
+  if(!sim){
+    return `<p class="sim-note">Für diese Zone gibt es keine Standardwerte. Tragen Sie Grenzabstand, Geschosse und Ausnützungsziffer ein, um die Reserve zu berechnen.</p>`;
+  }
+  const r=sim.rules, az=r.az[0]===r.az[1]?num2(r.az[0]):r.az.map(num2).join("–");
+  const what = r.custom ? "Ihre Werte" : `Annahmen für ${r.name}`;
+  const note=`${what}: Grenzabstand ${String(r.abstand).replace(".",",")} m, max. ${r.geschosse} Geschosse, Ausnützungsziffer ${az}.${r.custom?"":" Die Bau- und Zonenordnung Ihrer Gemeinde kann davon abweichen."}`;
+  if(sim.tooSmall) return `<p class="sim-note">Nach Abzug der Grenzabstände bleibt auf dieser Parzelle keine sinnvolle bebaubare Fläche. ${note}</p>`;
+  const res=simText(sim), full=sim.reserve&&sim.reserve[1]<1;
+  return `<dl class="sim-grid" style="margin:0">
+      <div class="sim-tile key"><dt>Ausbau-Reserve</dt><dd>${res||"–"}<small>${!res?"bestehende Fläche unbekannt":full?"zulässige Fläche bereits ausgeschöpft":"der zulässigen Geschossfläche ungenutzt"}</small></dd></div>
       <div class="sim-tile"><dt>Zulässige Geschossfläche</dt><dd>${rangeFmt(sim.gfLo,sim.gfHi," m²")}<small>${sim.existing!=null?`heute ca. ${fmt(sim.existing)} m²`:"&nbsp;"}</small></dd></div>
       <div class="sim-tile"><dt>Mögliche Wohnungen</dt><dd>${rangeFmt(sim.units[0],sim.units[1])}<small>bei ca. ${WOHNUNG_M2} m² pro Wohnung</small></dd></div>
     </dl>
-    <p class="sim-note">${note} Das mögliche Volumen ist in der Karte orange eingezeichnet.</p>
+    <p class="sim-note">${note} Das mögliche Volumen ist in der Karte orange eingezeichnet.</p>`;
+}
+
+function simBlock(sim, d){
+  if(!d.parcel||!d.parcelArea) return "";
+  const r=effectiveRules(d), o=simOverride[simKey(d)]||{};
+  const open = !sim;   // ohne Standardwerte gleich das Eingabefeld zeigen
+  const azVal = o.az ? (o.az[0]===o.az[1]?num2(o.az[0]):o.az.map(num2).join("–")) : "";
+  return `<section class="sim" id="simSection">
+    <div class="sim-head"><div class="eyebrow">Bebauungssimulation</div><span class="sim-tag" id="simTag">${r&&r.custom?"Mit Ihren Werten":"Schätzung mit Standardwerten"}</span></div>
+    <div id="simBody">${simBodyHtml(sim, d)}</div>
+    <button type="button" class="sim-edit" id="simEdit" aria-expanded="${open}" ${open?"hidden":""}>Werte anpassen</button>
+    <form class="sim-form" id="simForm" ${open?"":"hidden"} novalidate>
+      <div><label for="simAbstand">Grenzabstand (m)</label><input id="simAbstand" inputmode="decimal" placeholder="${r?String(r.abstand).replace(".",","):"5"}" value="${o.abstand!=null?String(o.abstand).replace(".",","):""}"></div>
+      <div><label for="simGeschosse">Max. Geschosse</label><input id="simGeschosse" inputmode="numeric" placeholder="${r?r.geschosse:"3"}" value="${o.geschosse!=null?o.geschosse:""}"></div>
+      <div><label for="simAz">Ausnützungsziffer</label><input id="simAz" inputmode="decimal" placeholder="${r?(r.az[0]===r.az[1]?num2(r.az[0]):r.az.map(num2).join("–")):"0,6"}" value="${azVal}"></div>
+      <button type="button" class="sim-reset" id="simReset">Standardwerte</button>
+      <p class="hint2">Leere Felder verwenden die Standardwerte. Ausnützungsziffer als Zahl (0,6) oder Spanne (0,5–0,7). Gilt für alle Parzellen dieser Zone in ${esc(d.gemeinde||"dieser Gemeinde")}.</p>
+    </form>
   </section>`;
+}
+
+/* Eingaben übernehmen und nur die betroffenen Teile neu zeichnen, ohne Fokus oder Kartenposition zu verlieren */
+function wireSim(d){
+  const form=document.getElementById("simForm"); if(!form) return;
+  const edit=document.getElementById("simEdit");
+  edit.addEventListener("click",()=>{ form.hidden=false; edit.hidden=true; edit.setAttribute("aria-expanded","true"); document.getElementById("simAz").focus(); fitFrame(); });
+  let t;
+  const read=()=>{
+    const num=v=>{ const n=Number(String(v).replace(",",".")); return v.trim()!==""&&isFinite(n)?n:null; };
+    const ab=num(form.simAbstand.value), ge=num(form.simGeschosse.value), az=parseAz(form.simAz.value);
+    const o={};
+    if(ab!=null&&ab>=0&&ab<=30) o.abstand=ab;
+    if(ge!=null&&ge>=1&&ge<=20) o.geschosse=Math.round(ge);
+    if(az) o.az=az;
+    if(Object.keys(o).length) simOverride[simKey(d)]=o; else delete simOverride[simKey(d)];
+    updateSim(d);
+  };
+  form.addEventListener("input",()=>{ clearTimeout(t); t=setTimeout(read,200); });
+  document.getElementById("simReset").addEventListener("click",()=>{
+    form.simAbstand.value=""; form.simGeschosse.value=""; form.simAz.value=""; read();
+  });
+}
+function updateSim(d){
+  const sim=simulate(d); d.sim=sim;
+  const ev=evaluate(d, sim);
+  document.getElementById("simBody").innerHTML=simBodyHtml(sim, d);
+  const r=effectiveRules(d); document.getElementById("simTag").textContent = r&&r.custom ? "Mit Ihren Werten" : "Schätzung mit Standardwerten";
+  document.getElementById("scoreMain").innerHTML=scoreMainHtml(ev);
+  document.getElementById("scoreSignals").innerHTML=signalsHtml(ev);
+  const fine=document.getElementById("leadScore"); if(fine) fine.textContent=ev.score;
+  if(map&&mapReady&&!d.demo) setMapFeatures(d);
+  if(c3dOn&&viewer) drawSim3D(d);
+  if(d.demo){ const fig=document.querySelector(".plan"); if(fig) fig.firstElementChild.outerHTML=planSVG(d); }
+  fitFrame();
 }
 
 function renderLead(d, ev){
@@ -590,7 +678,7 @@ function renderLead(d, ev){
     <div aria-hidden="true" style="position:absolute;left:-9999px"><label for="lweb">Website</label><input id="lweb" name="website" tabindex="-1" autocomplete="off"></div>
     <div class="err" id="lerr" hidden></div>
     <div><button class="btn" type="submit">Einschätzung anfordern</button></div>
-    <div class="fine">Wir verwenden Ihre Angaben nur für diese Anfrage. Potenzial-Score: ${ev.score}/100.</div>
+    <div class="fine">Wir verwenden Ihre Angaben nur für diese Anfrage. Potenzial-Score: <span id="leadScore">${ev.score}</span>/100.</div>
   </form>`;
   document.getElementById("leadForm").addEventListener("submit", async e=>{
     e.preventDefault();
@@ -602,11 +690,12 @@ function renderLead(d, ev){
       role:f.role.value, goal:f.goal.value, website:f.website.value,
       address:d.label, egrid:d.egrid||null, parzelle:d.parzelle||null, gemeinde:d.gemeinde||null,
       kanton:d.kanton||null, geoportalUrl:d.geoportal||null,
-      score:ev.score, level:ev.level, demo:!!d.demo,
+      ...(()=>{ const e2=evaluate(d,d.sim); return {score:e2.score, level:e2.level}; })(), demo:!!d.demo,
       facts:{parcelArea:d.parcelArea||null, year:d.year||d.yearApprox||null, klasse:d.klasse||null, floors:d.floors||null,
              zone:d.zone||null, oev:d.oev||null, heat:d.heat||null, solar:d.solar||null,
              reserve:simText(d.sim), gfMax:d.sim&&d.sim.gfHi?rangeFmt(d.sim.gfLo,d.sim.gfHi," m²"):null,
-             units:d.sim&&d.sim.units?rangeFmt(d.sim.units[0],d.sim.units[1]):null},
+             units:d.sim&&d.sim.units?rangeFmt(d.sim.units[0],d.sim.units[1]):null,
+             simRules:d.sim?`${d.sim.rules.custom?"Werte angepasst":"Standardwerte"}: Abstand ${d.sim.rules.abstand} m, ${d.sim.rules.geschosse} Geschosse, AZ ${d.sim.rules.az.map(num2).join("–")}`:null},
       page:document.referrer||location.href
     };
     try{
@@ -614,7 +703,7 @@ function renderLead(d, ev){
       if(!r.ok) throw new Error(r.status);
       document.getElementById("leadWrap").innerHTML = `<div class="leadbox ok"><h3>Danke, ${esc(payload.name.split(" ")[0])}.</h3>
         <p>Wir melden uns innert zwei Arbeitstagen mit einer ersten Einschätzung zu ${esc(d.label)}.</p></div>`;
-      parent.postMessage({type:"grundstueck-check:lead",score:ev.score},"*");
+      parent.postMessage({type:"grundstueck-check:lead",score:payload.score},"*");
     }catch(x){
       err.textContent="Die Anfrage konnte nicht gesendet werden. Bitte versuchen Sie es nochmals oder rufen Sie uns an.";
       err.hidden=false; btn.disabled=false; btn.textContent="Einschätzung anfordern";
@@ -684,17 +773,21 @@ async function attachMap(slot, d){
   if(!map) initMap(); else map.resize();
   await mapReady;
   map.resize();
-  const abs=r=>r.map(([x,y])=>lv95ToWgs(x+d.e,y+d.n));
-  const ring=abs(d.parcel);
-  const feats=[{type:"Feature",properties:{k:"parcel"},geometry:{type:"Polygon",coordinates:[ring]}}];
-  (d.roofs||[]).forEach(r=>feats.push({type:"Feature",properties:{k:"roof"},geometry:{type:"Polygon",coordinates:[abs(r)]}}));
-  if(d.sim&&d.sim.shape){ const sr=abs(d.sim.shape); feats.push({type:"Feature",properties:{k:"sim"},geometry:{type:"Polygon",coordinates:[sr.concat([sr[0]])]}}); }
-  map.getSource("sel").setData({type:"FeatureCollection",features:feats});
+  const ring=setMapFeatures(d);
   const lngs=ring.map(p=>p[0]), lats=ring.map(p=>p[1]);
   const pad=Math.min(70, Math.round(mapEl.clientHeight/5));
   map.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],
     {padding:pad, maxZoom:19, duration:mapFirst?0:700});
   mapFirst=false;
+}
+function setMapFeatures(d){
+  const abs=r=>r.map(([x,y])=>lv95ToWgs(x+d.e,y+d.n));
+  const ring=abs(d.parcel);
+  const feats=[{type:"Feature",properties:{k:"parcel"},geometry:{type:"Polygon",coordinates:[ring]}}];
+  (d.roofs||[]).forEach(r=>feats.push({type:"Feature",properties:{k:"roof"},geometry:{type:"Polygon",coordinates:[abs(r)]}}));
+  if(d.sim&&d.sim.shape){ const sr=abs(d.sim.shape); feats.push({type:"Feature",properties:{k:"sim"},geometry:{type:"Polygon",coordinates:[sr.concat([sr[0]])]}}); }
+  map.getSource("sel")?.setData({type:"FeatureCollection",features:feats});
+  return ring;
 }
 async function onMapClick(e){
   if(mapBusy) return;
@@ -808,6 +901,22 @@ function applyLook(){
   if(btn){ btn.setAttribute("aria-pressed", String(ph)); btn.title = ph ? "Planansicht" : "Luftbild"; btn.setAttribute("aria-label", btn.title); }
   viewer.scene.requestRender();
 }
+let simEntities=[];
+/* Mögliches Bauvolumen aus der Simulation: halbtransparente Geschossplatten */
+function drawSim3D(d){
+  const C=Cesium;
+  simEntities.forEach(e=>viewer.entities.remove(e)); simEntities=[];
+  if(d.sim&&d.sim.shape&&d.h3d!=null){
+    const h=d.h3d;
+    const simPos=C.Cartesian3.fromDegreesArray(d.sim.shape.map(([x,y])=>lv95ToWgs(x+d.e,y+d.n)).flat());
+    const so=C.Color.fromCssColorString("#F08A4B");
+    for(let i=0;i<d.sim.floors;i++){
+      simEntities.push(viewer.entities.add({polygon:{hierarchy:simPos, height:h+i*GESCHOSSHOEHE+0.15, extrudedHeight:h+(i+1)*GESCHOSSHOEHE-0.15,
+        material:so.withAlpha(0.42), outline:true, outlineColor:so}}));
+    }
+  }
+  viewer.scene.requestRender();
+}
 async function show3D(d){
   const band=document.querySelector(".mapband"); if(!band) return;
   if(!c3dEl){ c3dEl=document.createElement("div"); c3dEl.className="c3d"; }
@@ -827,15 +936,7 @@ async function show3D(d){
   let h=400;
   try{ const [p]=await C.sampleTerrainMostDetailed(viewer.terrainProvider,[C.Cartographic.fromDegrees(cx,cy)]); if(p&&isFinite(p.height)) h=p.height; }catch(e){}
   const r=Math.max(15, Math.sqrt(d.parcelArea||400)*0.8);
-  // Mögliches Bauvolumen aus der Simulation: halbtransparente Geschossplatten
-  if(d.sim&&d.sim.shape){
-    const simPos=C.Cartesian3.fromDegreesArray(d.sim.shape.map(([x,y])=>lv95ToWgs(x+d.e,y+d.n)).flat());
-    const so=C.Color.fromCssColorString("#F08A4B");
-    for(let i=0;i<d.sim.floors;i++){
-      viewer.entities.add({polygon:{hierarchy:simPos, height:h+i*GESCHOSSHOEHE+0.15, extrudedHeight:h+(i+1)*GESCHOSSHOEHE-0.15,
-        material:so.withAlpha(0.42), outline:true, outlineColor:so}});
-    }
-  }
+  d.h3d=h; drawSim3D(d);
   // Kamera kreist um die Parzellenmitte: Ziehen dreht, Scrollen zoomt (lookAt-Modus von Cesium)
   const center=C.Cartesian3.fromDegrees(cx,cy,h+6);
   const keepHeading = fly3dFirst ? C.Math.toRadians(-25) : viewer.camera.heading;

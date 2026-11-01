@@ -127,7 +127,7 @@ function emailHtml(l) {
     ${row("Solarstrom Dach", f.solar ? `${e(num(f.solar))} kWh/Jahr` : "–")}
     ${f.reserve || f.gfMax ? row("Ausbau-Reserve*", `<b style="color:#A4501A">${e(f.reserve)}</b>${f.gfMax ? ` · zulässig ${e(f.gfMax)}` : ""}${f.units ? ` · ${e(f.units)} Whg.` : ""}`) : ""}
   </table>
-  ${f.reserve || f.gfMax ? `<p style="margin:10px 0 0;font-size:12px;color:#5B6862">* Simulation mit Standardwerten pro Zonentyp, nicht nach der Bauordnung der Gemeinde.</p>` : ""}
+  ${f.reserve || f.gfMax ? `<p style="margin:10px 0 0;font-size:12px;color:#5B6862">* ${f.simRules ? e(f.simRules) + ". " : ""}Schätzung, nicht nach der Bauordnung der Gemeinde geprüft.</p>` : ""}
   ${geoUrl ? `<p style="margin:16px 0 0"><a href="${e(geoUrl)}" style="color:#1E6A4E;font-size:14px">Auf map.geo.admin.ch öffnen</a></p>` : ""}
 </td></tr>
 ${l.geoportalUrl || l.kanton ? `<tr><td style="padding:16px 24px;border-top:1px solid #D5DBD6">
@@ -167,7 +167,7 @@ function str(v, max) {
 function sanitizeFacts(f) {
   if (!f || typeof f !== "object") return {};
   const out = {};
-  for (const k of ["parcelArea", "year", "klasse", "floors", "zone", "oev", "heat", "solar", "reserve", "gfMax", "units"]) {
+  for (const k of ["parcelArea", "year", "klasse", "floors", "zone", "oev", "heat", "solar", "reserve", "gfMax", "units", "simRules"]) {
     const v = f[k];
     out[k] = typeof v === "number" ? v : str(v, 80);
   }
