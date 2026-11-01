@@ -147,6 +147,10 @@ footer a{color:inherit}
 .btn3d:hover{border-color:var(--accent);color:var(--accent)}
 .btn3d[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .btn3d:disabled{opacity:.7;cursor:progress}
+.ctl3d{position:absolute;right:10px;top:10px;z-index:4;display:flex;flex-direction:column;gap:6px}
+.ctl3d button{width:34px;height:34px;display:grid;place-items:center;font-size:17px;line-height:1;color:var(--ink);background:var(--sheet);border:1px solid var(--line);border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.ctl3d button:hover{border-color:var(--accent);color:var(--accent)}
+.mapband.is3d .maplibregl-ctrl-top-right{display:none}
 .score-main{display:flex;flex-direction:column;gap:10px}
 .top.solo{grid-template-columns:1fr}
 .top.solo .score{display:grid;grid-template-columns:minmax(180px,240px) 1fr;gap:12px 28px;align-items:center}
@@ -411,7 +415,7 @@ function render(d){
       <div><div class="eyebrow">${d.demo?"Beispielauswertung":"Ihre Auswertung"}</div><h2>${esc(d.label)}</h2></div>
       ${d.demo?'<span class="demo-tag">Fiktive Beispieldaten</span>':""}
     </div>
-    ${useMap?`<div class="mapband"><div id="mapSlot"></div><button type="button" class="btn3d" id="btn3d" aria-pressed="${c3dOn}">${c3dOn?"2D":"3D"}</button><div class="hint">Nachbarparzelle anklicken, um sie zu prüfen</div></div>`:""}
+    ${useMap?`<div class="mapband"><div id="mapSlot"></div><button type="button" class="btn3d" id="btn3d" aria-pressed="${c3dOn}">${c3dOn?"2D":"3D"}</button><div class="ctl3d" id="ctl3d" ${c3dOn?"":"hidden"}><button type="button" data-rot="-1" aria-label="Nach links drehen" title="Nach links drehen">⟲</button><button type="button" data-rot="1" aria-label="Nach rechts drehen" title="Nach rechts drehen">⟳</button><button type="button" data-zoom="1" aria-label="Hineinzoomen" title="Hineinzoomen">+</button><button type="button" data-zoom="-1" aria-label="Herauszoomen" title="Herauszoomen">−</button></div><div class="hint" id="mapHint">${c3dOn?HINT3D:HINT2D}</div></div>`:""}
     <div class="top${useMap?" solo":""}">
       ${useMap?"":`<figure class="plan" style="margin:0">${planSVG(d)}<figcaption>Parzelle aus der amtlichen Vermessung${(d.bldg||d.roofs?.length)?", Dachflächen rot":""}</figcaption></figure>`}
       <div class="score">
@@ -427,6 +431,14 @@ function render(d){
     attachMap(document.getElementById("mapSlot"), d);
     const b3=document.getElementById("btn3d");
     b3.addEventListener("click",()=>toggle3D(d,b3));
+    document.getElementById("ctl3d").addEventListener("click",ev=>{
+      const t=ev.target.closest("button"); if(!t||!viewer) return;
+      const C=Cesium, cam=viewer.camera;
+      if(t.dataset.rot) cam.rotateRight(C.Math.toRadians(30)*+t.dataset.rot);
+      if(t.dataset.zoom){ const dist=C.Cartesian3.magnitude(cam.position); cam.zoomIn(dist*0.25*+t.dataset.zoom); }
+      viewer.scene.requestRender();
+    });
+    if(c3dOn) document.querySelector(".mapband").classList.add("is3d");
     if(c3dOn) show3D(d).catch(()=>{});
   }
   renderLead(d, ev);
@@ -570,6 +582,8 @@ async function onMapClick(e){
 // Vollständiges Build inkl. Worker (cdnjs liefert die Worker-Dateien nicht mit)
 const CESIUM="https://cdn.jsdelivr.net/npm/cesium@1.121.0/Build/Cesium/";
 const GEO3D="https://3d.geo.admin.ch/";
+const HINT2D="Nachbarparzelle anklicken, um sie zu prüfen";
+const HINT3D="Ziehen zum Drehen, Scrollen zum Zoomen, Klick wählt eine Parzelle";
 let viewer=null, c3dEl=null, c3dOn=false, cesiumLoading=null, viewerInit=null, fly3dFirst=true;
 function loadCesium(){
   if(window.Cesium) return Promise.resolve();
@@ -584,11 +598,13 @@ function loadCesium(){
   return cesiumLoading;
 }
 async function toggle3D(d,btn){
-  if(c3dOn){ c3dOn=false; if(c3dEl) c3dEl.hidden=true; btn.textContent="3D"; btn.setAttribute("aria-pressed","false"); return; }
+  const band=btn.closest(".mapband"), ctl=document.getElementById("ctl3d"), hint=document.getElementById("mapHint");
+  const set3d=on=>{ band.classList.toggle("is3d",on); ctl.hidden=!on; hint.textContent=on?HINT3D:HINT2D; };
+  if(c3dOn){ c3dOn=false; if(c3dEl) c3dEl.hidden=true; btn.textContent="3D"; btn.setAttribute("aria-pressed","false"); set3d(false); return; }
   btn.disabled=true; btn.textContent="3D lädt …";
   try{
     await loadCesium(); c3dOn=true; await show3D(d);
-    btn.textContent="2D"; btn.setAttribute("aria-pressed","true");
+    btn.textContent="2D"; btn.setAttribute("aria-pressed","true"); set3d(true);
   }catch(e){ c3dOn=false; if(c3dEl) c3dEl.hidden=true; btn.textContent="3D nicht verfügbar"; }
   finally{ btn.disabled=false; }
 }
@@ -607,6 +623,9 @@ function initViewer(){
   sc.globe.depthTestAgainstTerrain=true;
   sc.screenSpaceCameraController.minimumZoomDistance=40;
   sc.screenSpaceCameraController.maximumZoomDistance=3000;
+  const CET=C.CameraEventType;
+  sc.screenSpaceCameraController.tiltEventTypes=[CET.RIGHT_DRAG, CET.PINCH, {eventType:CET.LEFT_DRAG, modifier:C.KeyboardEventModifier.CTRL}];
+  sc.screenSpaceCameraController.zoomEventTypes=[CET.WHEEL, CET.PINCH];
   viewer.scene.skyAtmosphere.show=true;
   return (async()=>{
     try{ viewer.terrainProvider=await C.CesiumTerrainProvider.fromUrl(GEO3D+"ch.swisstopo.terrain.3d/v1/"); }catch(e){}
@@ -643,8 +662,14 @@ async function show3D(d){
   let h=400;
   try{ const [p]=await C.sampleTerrainMostDetailed(viewer.terrainProvider,[C.Cartographic.fromDegrees(cx,cy)]); if(p&&isFinite(p.height)) h=p.height; }catch(e){}
   const r=Math.max(15, Math.sqrt(d.parcelArea||400)*0.8);
-  viewer.camera.flyToBoundingSphere(new C.BoundingSphere(C.Cartesian3.fromDegrees(cx,cy,h+6), r),
-    {offset:new C.HeadingPitchRange(C.Math.toRadians(-25), C.Math.toRadians(-32), Math.max(140, r*6)), duration:fly3dFirst?0:1.4});
+  // Kamera kreist um die Parzellenmitte: Ziehen dreht, Scrollen zoomt (lookAt-Modus von Cesium)
+  const center=C.Cartesian3.fromDegrees(cx,cy,h+6);
+  const keepHeading = fly3dFirst ? C.Math.toRadians(-25) : viewer.camera.heading;
+  const offset=new C.HeadingPitchRange(keepHeading, C.Math.toRadians(-32), Math.max(140, r*6));
+  viewer.camera.lookAtTransform(C.Matrix4.IDENTITY);
+  if(fly3dFirst){ viewer.camera.lookAt(center, offset); }
+  else viewer.camera.flyToBoundingSphere(new C.BoundingSphere(center, r), {offset, duration:1.2,
+    complete:()=>{ viewer.camera.lookAt(center, offset); viewer.scene.requestRender(); }});
   fly3dFirst=false;
   viewer.scene.requestRender();
 }
