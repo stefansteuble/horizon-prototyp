@@ -1,0 +1,12 @@
+# Cloudflare Pages Header-Regeln
+# frame-ancestors: Domains, die das Tool per iframe einbetten dürfen.
+# Die Kundendomain hier ergänzen, z.B. https://www.kunde.ch
+/*
+  Content-Security-Policy: frame-ancestors 'self' https://*.webflow.io
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+/embed.js
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600

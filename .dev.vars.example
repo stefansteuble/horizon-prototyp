@@ -1,0 +1,2 @@
+# Lokale Secrets für "npm run dev" (nicht committen)
+LEAD_WEBHOOK_URL=

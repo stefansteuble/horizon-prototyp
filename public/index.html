@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="de-CH">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Grundstück-Potenzial-Check</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column like a Grundbuchplan sheet: address field, then a "Planblatt" with parcel sketch, score and data, then the lead form */
+:root{
+  --paper:#F2F4F1; --sheet:#FFFFFF; --ink:#18221E; --muted:#5B6862; --line:#D5DBD6;
+  --accent:#1E6A4E; --accent-ink:#FFFFFF; --accent-soft:#E2EEE8;
+  --bldg:#E7B9B6; --bldg-line:#B5605B;
+  --good:#1E6A4E; --warn:#A8701A; --low:#7A8580;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#111714; --sheet:#18201C; --ink:#E6ECE8; --muted:#97A39D; --line:#2C3832;
+  --accent:#5BBF94; --accent-ink:#0D1A14; --accent-soft:#1D3229;
+  --bldg:#5A3533; --bldg-line:#D98C86; --good:#5BBF94; --warn:#E0A74A; --low:#8C9892; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#111714; --sheet:#18201C; --ink:#E6ECE8; --muted:#97A39D; --line:#2C3832;
+  --accent:#5BBF94; --accent-ink:#0D1A14; --accent-soft:#1D3229;
+  --bldg:#5A3533; --bldg-line:#D98C86; --good:#5BBF94; --warn:#E0A74A; --low:#8C9892; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+[hidden]{display:none!important}
+img{max-width:100%}
+body{background:var(--paper);color:var(--ink);font:16px/1.55 var(--f-body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+.wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+.brand{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px;color:var(--muted)}
+.brand b{font-family:var(--f-display);font-stretch:85%;font-weight:700;letter-spacing:.02em;color:var(--ink);font-size:15px}
+.mode{font-family:var(--f-mono);font-size:11px;padding:3px 8px;border:1px solid var(--line);border-radius:99px;white-space:nowrap}
+.mode.live{border-color:var(--accent);color:var(--accent)}
+h1{font-family:var(--f-display);font-stretch:78%;font-weight:800;font-size:clamp(34px,8vw,56px);line-height:1;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.lead{color:var(--muted);max-width:56ch;margin:12px 0 0}
+.eyebrow{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+
+/* search */
+.search{position:relative;margin-top:20px}
+.search label{display:block;font-weight:600;font-size:14px;margin-bottom:6px}
+.field{display:flex;gap:8px}
+input,select{font:inherit;color:var(--ink);background:var(--sheet);border:1.5px solid var(--line);border-radius:var(--r);padding:12px 14px;width:100%;min-width:0}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
+button{font:inherit;cursor:pointer}
+.btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:var(--r);padding:12px 18px;font-weight:600;white-space:nowrap}
+.btn:hover{filter:brightness(1.08)}
+.sugg{position:absolute;left:0;right:0;top:100%;margin-top:4px;background:var(--sheet);border:1px solid var(--line);border-radius:var(--r);list-style:none;padding:4px;margin-inline:0;z-index:5;box-shadow:0 10px 30px rgba(0,0,0,.12)}
+.sugg li{padding:10px 12px;border-radius:7px;cursor:pointer}
+.sugg li[aria-selected="true"],.sugg li:hover{background:var(--accent-soft)}
+.sugg li b{font-weight:600}
+.examples{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center;font-size:13px;color:var(--muted)}
+.chip{background:transparent;border:1px solid var(--line);color:var(--ink);border-radius:99px;padding:5px 12px;font-size:13px}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
+
+/* loading */
+.steps{list-style:none;margin:0;padding:20px;background:var(--sheet);border:1px solid var(--line);border-radius:var(--r);display:grid;gap:10px;font-size:15px}
+.steps li{display:flex;gap:10px;align-items:center;color:var(--muted)}
+.steps li.done{color:var(--ink)}
+.steps li::before{content:"";width:14px;height:14px;border-radius:50%;border:2px solid var(--line);flex:none}
+.steps li.done::before{background:var(--accent);border-color:var(--accent)}
+.steps li.run::before{border-color:var(--accent);border-top-color:transparent;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* sheet */
+.sheet{background:var(--sheet);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.sheet-head{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline}
+.sheet-head h2{font-family:var(--f-display);font-stretch:85%;font-weight:700;font-size:24px;margin:2px 0 0;line-height:1.15}
+.demo-tag{font-family:var(--f-mono);font-size:11px;color:var(--warn);border:1px solid currentColor;border-radius:4px;padding:2px 6px}
+.top{display:grid;grid-template-columns:1.1fr 1fr;border-bottom:1px solid var(--line)}
+.top>div{padding:18px 20px;min-width:0}
+.top>div+div{border-left:1px solid var(--line)}
+.plan svg{width:100%;height:auto;display:block}
+.plan figcaption{font-size:12px;color:var(--muted);margin-top:6px}
+.score{display:flex;flex-direction:column;gap:10px}
+.gauge{position:relative;width:100%;max-width:240px}
+.gauge svg{width:100%;height:auto;display:block}
+.gauge .num{position:absolute;left:0;right:0;bottom:4px;text-align:center}
+.gauge .num strong{font-family:var(--f-display);font-stretch:80%;font-weight:800;font-size:44px;line-height:1;display:block;font-variant-numeric:tabular-nums}
+.gauge .num span{font-size:13px;color:var(--muted)}
+.level{font-family:var(--f-display);font-stretch:85%;font-weight:700;font-size:20px}
+.signals{list-style:none;padding:0;margin:0;display:grid;gap:8px;font-size:14px}
+.signals li{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:start}
+.pill{font-family:var(--f-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;padding:2px 6px;border-radius:4px;margin-top:2px}
+.pill.plus{background:var(--accent-soft);color:var(--good)}
+.pill.neut{border:1px solid var(--line);color:var(--low)}
+.facts{display:grid;grid-template-columns:repeat(3,1fr)}
+.fact{padding:16px 20px;border-top:1px solid var(--line);min-width:0}
+.fact:nth-child(-n+3){border-top:0}
+.fact:not(:nth-child(3n+1)){border-left:1px solid var(--line)}
+.fact dt{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.fact dd{margin:4px 0 0;font-weight:600;font-size:17px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.fact dd small{display:block;font-weight:400;font-size:12.5px;color:var(--muted)}
+.mono{font-family:var(--f-mono);font-weight:500;font-size:14px}
+.note{padding:14px 20px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);background:var(--paper)}
+
+/* lead */
+.leadbox{background:var(--sheet);border:1.5px solid var(--accent);border-radius:var(--r);padding:22px 20px;display:grid;gap:16px}
+.leadbox h3{font-family:var(--f-display);font-stretch:85%;font-weight:700;font-size:24px;margin:0;line-height:1.15;text-wrap:balance}
+.leadbox p{margin:0;color:var(--muted);max-width:60ch}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fld label{display:block;font-size:13px;font-weight:600;margin-bottom:4px}
+.radio{display:flex;flex-wrap:wrap;gap:8px}
+.radio label{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:99px;padding:6px 12px;font-size:14px;cursor:pointer}
+.radio input{width:auto;accent-color:var(--accent);margin:0}
+.radio label:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.fine{font-size:12px;color:var(--muted)}
+.err{color:var(--warn);font-size:13px}
+.ok{display:grid;gap:8px}
+.ok h3{color:var(--accent)}
+footer{font-size:12px;color:var(--muted)}
+footer a{color:inherit}
+
+@media (max-width:620px){
+  .top{grid-template-columns:1fr}
+  .top>div+div{border-left:0;border-top:1px solid var(--line)}
+  .facts{grid-template-columns:1fr 1fr}
+  .fact:nth-child(-n+3){border-top:1px solid var(--line)}
+  .fact:nth-child(-n+2){border-top:0}
+  .fact:not(:nth-child(3n+1)){border-left:0}
+  .fact:nth-child(2n){border-left:1px solid var(--line)}
+  .grid2{grid-template-columns:1fr}
+  .field{flex-direction:column}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="brand"><b>MUSTER ENTWICKLUNG AG</b><span id="mode" class="mode">Beispieldaten</span></div>
+
+  <header>
+    <div class="eyebrow">Grundstück-Check · kostenlos</div>
+    <h1>Was steckt in Ihrem Grundstück?</h1>
+    <p class="lead">Geben Sie Ihre Adresse ein. Wir werten die amtlichen Daten des Bundes zu Parzelle, Gebäude, Bauzone und Lage aus und zeigen Ihnen, ob sich eine Entwicklung lohnen könnte.</p>
+    <form class="search" id="searchForm" autocomplete="off">
+      <label for="addr">Adresse der Liegenschaft</label>
+      <div class="field">
+        <input id="addr" type="text" placeholder="z.B. Musterweg 12, Zug" role="combobox" aria-expanded="false" aria-controls="sugg">
+        <button class="btn" type="submit">Grundstück prüfen</button>
+      </div>
+      <ul class="sugg" id="sugg" role="listbox" hidden></ul>
+      <div class="examples"><span>Beispiele:</span>
+        <button type="button" class="chip" data-demo="0">Musterweg 12, Zug</button>
+        <button type="button" class="chip" data-demo="1">Beispielstrasse 4, Uster</button>
+        <button type="button" class="chip" data-demo="2">Probeallee 31, Bern</button>
+      </div>
+    </form>
+  </header>
+
+  <ul class="steps" id="steps" hidden></ul>
+
+  <section id="result" aria-live="polite"></section>
+
+  <section id="leadWrap"></section>
+
+  <footer>Datenquelle: <a href="https://www.geo.admin.ch" target="_blank" rel="noopener">geo.admin.ch</a> (swisstopo, BFS, ARE, BFE). Die Auswertung ist eine automatische Ersteinschätzung und ersetzt keine Prüfung der kommunalen Bau- und Zonenordnung.</footer>
+</div>
+
+<script>
+const API = "https://api3.geo.admin.ch/rest/services";
+let LIVE = false;
+
+/* ---------- Beispieldaten (fiktive Adressen, für die Vorschau) ---------- */
+const DEMO = [
+  { label:"Musterweg 12, 6300 Zug", demo:true,
+    egrid:"CH-DEMO-0001", parzelle:"1847", gemeinde:"Zug",
+    parcelArea:1180, parcel:[[0,0],[38,0],[40,30],[2,32]], bldg:[[9,9],[23,9],[23,19],[9,19]],
+    year:1962, klasse:"Einfamilienhaus", floors:2, units:1, footprint:140, heat:"Heizöl", fossil:true,
+    zone:"Wohnzone", oev:"B", solar:14200 },
+  { label:"Beispielstrasse 4, 8610 Uster", demo:true,
+    egrid:"CH-DEMO-0002", parzelle:"3302", gemeinde:"Uster",
+    parcelArea:920, parcel:[[0,0],[34,0],[34,27],[0,27]], bldg:[[6,5],[28,5],[28,19],[6,19]],
+    year:1988, klasse:"Mehrfamilienhaus", floors:4, units:8, footprint:310, heat:"Gas", fossil:true,
+    zone:"Wohnzone", oev:"C", solar:21800 },
+  { label:"Probeallee 31, 3006 Bern", demo:true,
+    egrid:"CH-DEMO-0003", parzelle:"612", gemeinde:"Bern",
+    parcelArea:640, parcel:[[0,0],[29,2],[27,24],[0,22]], bldg:[[3,3],[25,4],[24,17],[3,16]],
+    year:2015, klasse:"Mehrfamilienhaus", floors:5, units:12, footprint:290, heat:"Wärmepumpe (Erdwärme)", fossil:false,
+    zone:"Mischzone", oev:"A", solar:26500 }
+];
+
+/* ---------- GWR-Codes ---------- */
+const GKLAS = {1110:"Einfamilienhaus",1121:"Zweifamilienhaus",1122:"Mehrfamilienhaus",1130:"Wohngebäude für Gemeinschaften",1211:"Hotel",1220:"Bürogebäude",1230:"Handelsgebäude",1251:"Industriegebäude",1252:"Lagergebäude",1271:"Landwirtschaftsgebäude"};
+const GENH = {7500:"Keine",7501:"Luft (Wärmepumpe)",7510:"Erdwärme",7511:"Erdwärmesonde",7512:"Erdregister",7513:"Wasser",7520:"Gas",7530:"Heizöl",7540:"Holz",7541:"Stückholz",7542:"Holzschnitzel",7543:"Pellets",7550:"Abwärme",7560:"Elektrizität",7570:"Sonnenkollektor",7580:"Fernwärme",7581:"Fernwärme",7582:"Fernwärme",7598:"Unbestimmt",7599:"Andere"};
+
+const GKAT = {1010:"Provisorische Unterkunft",1020:"Reines Wohngebäude",1030:"Wohngebäude mit Nebennutzung",1040:"Gebäude mit Wohnanteil",1060:"Gebäude ohne Wohnnutzung",1080:"Sonderbau"};
+/* Bauperiode, falls kein exaktes Baujahr erfasst ist (Mitte der Periode) */
+const GBAUP = {8011:1900,8012:1932,8013:1953,8014:1965,8015:1975,8016:1983,8017:1988,8018:1993,8019:1998,8020:2003,8021:2008,8022:2013,8023:2018};
+const props = r => (r&&(r.properties||r.attributes))||{};
+
+/* ---------- Live-API ---------- */
+async function getJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(r.status); return r.json(); }
+
+async function ping(){
+  try{
+    await getJSON(`${API}/api/SearchServer?searchText=Bern&type=locations&limit=1`);
+    LIVE = true; document.getElementById("mode").hidden = true;
+  }catch(e){ LIVE = false; }
+}
+
+async function searchLive(q){
+  const d = await getJSON(`${API}/api/SearchServer?searchText=${encodeURIComponent(q)}&type=locations&origins=address&sr=2056&limit=6`);
+  return (d.results||[]).map(r=>({
+    label: r.attrs.label.replace(/<[^>]+>/g,"").replace(/\s+/g," ").trim(),
+    labelHtml: r.attrs.label,
+    e: r.attrs.y, n: r.attrs.x,                 // LV95: y = Ost, x = Nord
+    egid: String(r.attrs.featureId||"").split("_")[0]
+  }));
+}
+
+function identifyUrl(e,n,layers,tol,geom){
+  const d=100, ext=`${e-d},${n-d},${e+d},${n+d}`;
+  return `${API}/api/MapServer/identify?geometry=${e},${n}&geometryType=esriGeometryPoint&layers=all:${layers}`+
+    `&mapExtent=${ext}&imageDisplay=200,200,96&tolerance=${tol}&sr=2056&lang=de`+
+    `&returnGeometry=${geom}&geometryFormat=geojson`;
+}
+
+function ringArea(r){ let a=0; for(let i=0,j=r.length-1;i<r.length;j=i++) a+=(r[j][0]+r[i][0])*(r[j][1]-r[i][1]); return Math.abs(a/2); }
+
+async function analyseLive(hit, onStep){
+  const out = { label:hit.label, demo:false };
+  // 1 Parzelle (amtliche Vermessung, mit Geometrie)
+  onStep(0);
+  try{
+    const p = await getJSON(identifyUrl(hit.e,hit.n,"ch.kantone.cadastralwebmap-farbe",0,true));
+    const f = (p.results||[])[0];
+    if(f){
+      const a=props(f);
+      out.egrid=a.egris_egrid||null; out.parzelle=a.number||null;
+      const g=f.geometry; let ring=null;
+      if(g?.type==="Polygon") ring=g.coordinates[0];
+      if(g?.type==="MultiPolygon") ring=g.coordinates[0][0];
+      if(ring){ out.parcelArea=Math.round(ringArea(ring)); out.parcel=ring.map(([x,y])=>[x-hit.e,y-hit.n]); out.point=[0,0]; }
+    }
+  }catch(e){}
+  // 2 Gebäude (GWR)
+  onStep(1);
+  try{
+    const g = await getJSON(identifyUrl(hit.e,hit.n,"ch.bfs.gebaeude_wohnungs_register",5,false));
+    const list=(g.results||[]).map(props);
+    const b = list.find(a=>String(a.egid)===hit.egid) || list[0];
+    if(b){
+      out.year=+b.gbauj||null; out.yearApprox=!b.gbauj&&GBAUP[b.gbaup]||null;
+      out.klasse=GKLAS[b.gklas]||GKAT[b.gkat]||null; out.floors=+b.gastw||null;
+      out.units=+b.ganzwhg||null; out.footprint=+b.garea||null;
+      out.heat=GENH[b.genh1]||null; out.fossil=[7520,7530].includes(+b.genh1);
+      out.egrid=out.egrid||b.egrid||null; out.parzelle=out.parzelle||b.lparz||null; out.gemeinde=b.ggdename||out.gemeinde;
+    }
+  }catch(e){}
+  // 3 Bauzone + ÖV-Güteklasse
+  onStep(2);
+  try{
+    const [z,o] = await Promise.all([
+      getJSON(identifyUrl(hit.e,hit.n,"ch.are.bauzonen",0,false)),
+      getJSON(identifyUrl(hit.e,hit.n,"ch.are.gueteklassen_oev",0,false))
+    ]);
+    const za=props((z.results||[])[0]); out.zone=za.ch_bez_d||null;
+    const oa=props((o.results||[])[0]); const k=String(oa.klasse_de||"").charAt(0); out.oev="ABCD".includes(k)&&k?k:null;
+  }catch(e){}
+  // 4 Solarpotenzial und Dachumriss (Sonnendach), alle Dachflächen des Gebäudes
+  onStep(3);
+  try{
+    let roofs=[];
+    if(hit.egid){
+      const f = await getJSON(`${API}/api/MapServer/find?layer=ch.bfe.solarenergie-eignung-daecher&searchText=${hit.egid}&searchField=gwr_egid&contains=false&returnGeometry=true&geometryFormat=geojson&sr=2056`);
+      roofs=f.results||[];
+    }
+    if(!roofs.length){
+      const s = await getJSON(identifyUrl(hit.e,hit.n,"ch.bfe.solarenergie-eignung-daecher",10,true));
+      roofs=s.results||[];
+    }
+    const sum=roofs.reduce((t,r)=>t+(+props(r).stromertrag||0),0);
+    if(sum) out.solar=Math.round(sum/100)*100;
+    out.roofs=roofs.map(r=>{const g=r.geometry; const ring=g?.type==="Polygon"?g.coordinates[0]:g?.type==="MultiPolygon"?g.coordinates[0][0]:null;
+      return ring?ring.map(([x,y])=>[x-hit.e,y-hit.n]):null;}).filter(Boolean);
+  }catch(e){}
+  onStep(4);
+  return out;
+}
+
+/* ---------- Bewertung (Indikatoren, kein Gutachten) ---------- */
+function evaluate(d){
+  let s=0; const sig=[];
+  const now=new Date().getFullYear();
+  const yr=d.year||d.yearApprox;
+  if(yr){ const age=now-yr;
+    if(age>=50){s+=30; sig.push(["plus",`Gebäude ist ${age} Jahre alt. Ein Ersatzneubau kann wirtschaftlicher sein als eine Gesamtsanierung.`]);}
+    else if(age>=35){s+=20; sig.push(["plus",`Gebäude ist ${age} Jahre alt, eine grössere Erneuerung steht in den nächsten Jahren an.`]);}
+    else if(age>=20){s+=10; sig.push(["neut",`Gebäude ist ${age} Jahre alt.`]);}
+    else sig.push(["neut",`Gebäude ist erst ${age} Jahre alt.`]); }
+  const gf = d.footprint&&d.floors ? d.footprint*d.floors : null;
+  if(gf&&d.parcelArea){ const r=gf/d.parcelArea; d.ratio=r;
+    if(r<0.4){s+=30; sig.push(["plus","Die bestehende Geschossfläche nutzt die Parzelle nur wenig. Hier ist oft deutlich mehr Wohnfläche möglich."]);}
+    else if(r<0.7){s+=20; sig.push(["plus","Die Parzelle ist eher locker bebaut."]);}
+    else if(r<1.0){s+=10; sig.push(["neut","Die Parzelle ist mittel dicht bebaut."]);}
+    else sig.push(["neut","Die Parzelle ist bereits dicht bebaut."]); }
+  if(d.parcelArea>=800){s+=10; sig.push(["plus",`Mit ${fmt(d.parcelArea)} m² ist die Parzelle gross genug für ein Mehrfamilienhaus.`]);}
+  else if(d.parcelArea>=500) s+=5;
+  if(d.zone){ if(/wohn|misch|kern|zentrum/i.test(d.zone)) s+=10; } else s+=5;
+  if(d.oev){ s+= {A:10,B:10,C:6,D:3}[d.oev]||0;
+    if("AB".includes(d.oev)) sig.push(["plus",`ÖV-Güteklasse ${d.oev}: gute Anbindung erhöht die Nachfrage nach Wohnungen.`]); }
+  if(d.fossil){ s+=10; sig.push(["plus",`Heizung mit ${d.heat}: Ein Heizungsersatz ist ein guter Zeitpunkt, um über das ganze Gebäude nachzudenken.`]); }
+  s=Math.min(100,s);
+  const level = s>=65?"Hohes Potenzial":s>=40?"Mittleres Potenzial":"Geringes Potenzial";
+  return {score:s, level, signals:sig.slice(0,4)};
+}
+
+/* ---------- Darstellung ---------- */
+const fmt = n => n==null?"–":Math.round(n).toLocaleString("de-CH");
+const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function planSVG(d){
+  if(!d.parcel) return `<svg viewBox="0 0 240 170" role="img" aria-label="Kein Parzellenplan verfügbar"><rect x="1" y="1" width="238" height="168" fill="none" stroke="var(--line)" stroke-dasharray="4 4"/><text x="120" y="90" text-anchor="middle" font-size="12" fill="var(--muted)">Parzellenplan nicht verfügbar</text></svg>`;
+  const shapes=(d.roofs&&d.roofs.length?d.roofs:(d.bldg?[d.bldg]:[]));
+  const pts=d.parcel.concat(...shapes);
+  const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+  const W=240,H=170,pad=22, sc=Math.min((W-2*pad)/(maxX-minX||1),(H-2*pad-14)/(maxY-minY||1));
+  const ox=(W-(maxX-minX)*sc)/2, oy=(H-14-(maxY-minY)*sc)/2;
+  const P=p=>`${(ox+(p[0]-minX)*sc).toFixed(1)},${(oy+(maxY-p[1])*sc).toFixed(1)}`;
+  const poly=r=>r.map(P).join(" ");
+  // Massstab: runde Länge ~ 1/4 der Breite
+  const target=(W/4)/sc, nice=[5,10,20,25,50,100,200].find(v=>v>=target)||200, bar=nice*sc;
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Parzellenplan, ${fmt(d.parcelArea)} Quadratmeter">`;
+  s+=`<polygon points="${poly(d.parcel)}" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  shapes.forEach(r=>{ s+=`<polygon points="${poly(r)}" fill="var(--bldg)" stroke="var(--bldg-line)" stroke-width="1"/>`; });
+  if(d.point&&!shapes.length) s+=`<circle cx="${P(d.point).split(",")[0]}" cy="${P(d.point).split(",")[1]}" r="4" fill="var(--bldg-line)"/>`;
+  s+=`<g transform="translate(${W-16},16)" fill="var(--muted)"><path d="M0,-10 L4,4 L0,1 L-4,4 Z"/><text y="16" text-anchor="middle" font-size="9" font-family="var(--f-mono)">N</text></g>`;
+  s+=`<g transform="translate(8,${H-8})" stroke="var(--ink)" stroke-width="1.2"><line x1="0" y1="0" x2="${bar.toFixed(1)}" y2="0"/><line x1="0" y1="-4" x2="0" y2="0"/><line x1="${bar.toFixed(1)}" y1="-4" x2="${bar.toFixed(1)}" y2="0"/></g>`;
+  s+=`<text x="${(8+bar+6).toFixed(1)}" y="${H-5}" font-size="10" font-family="var(--f-mono)" fill="var(--muted)">${nice} m</text>`;
+  return s+`</svg>`;
+}
+
+function gaugeSVG(v){
+  const R=80, L=Math.PI*R, f=v/100*L;
+  return `<svg viewBox="0 0 200 112" aria-hidden="true">
+    <path d="M20,100 A80,80 0 0 1 180,100" fill="none" stroke="var(--line)" stroke-width="14" stroke-linecap="round"/>
+    <path d="M20,100 A80,80 0 0 1 180,100" fill="none" stroke="var(--accent)" stroke-width="14" stroke-linecap="round" stroke-dasharray="${f} ${L}"/>
+  </svg>`;
+}
+
+function render(d){
+  const ev=evaluate(d);
+  const gf=d.footprint&&d.floors?d.footprint*d.floors:null;
+  const facts=[
+    ["Parzelle", d.parcelArea?`${fmt(d.parcelArea)} m²`:"–", d.parzelle?`Nr. ${esc(d.parzelle)}${d.gemeinde?", "+esc(d.gemeinde):""}`:""],
+    ["Gebäude", esc(d.klasse||"–"), d.year?`Baujahr ${d.year}`:d.yearApprox?(d.yearApprox<1919?"Baujahr vor 1919":`Baujahr ca. ${d.yearApprox}`):""],
+    ["Geschossfläche (ca.)", gf?`${fmt(gf)} m²`:"–", d.floors?`${d.floors} Geschosse${d.units?` · ${d.units} Whg.`:""}`:""],
+    ["Bauzone", esc(d.zone||"–"), "Bundesweit harmonisiert"],
+    ["ÖV-Güteklasse", d.oev||"–", d.oev?{A:"sehr gut",B:"gut",C:"mittel",D:"gering"}[d.oev]+"e Erschliessung":""],
+    ["Heizung", esc(d.heat||"–"), d.fossil?"fossil":""],
+    ["Solarstrom Dach", d.solar?`${fmt(d.solar)} kWh/J.`:"–", d.solar?"Potenzial gemäss Sonnendach":""],
+    ["Verhältnis GF / Parzelle", d.ratio?d.ratio.toFixed(2).replace(".",","):"–", "Indikator, nicht die zulässige AZ"],
+    ["E-GRID", `<span class="mono">${esc(d.egrid||"–")}</span>`, ""]
+  ];
+  document.getElementById("result").innerHTML = `
+  <article class="sheet">
+    <div class="sheet-head">
+      <div><div class="eyebrow">${d.demo?"Beispielauswertung":"Ihre Auswertung"}</div><h2>${esc(d.label)}</h2></div>
+      ${d.demo?'<span class="demo-tag">Fiktive Beispieldaten</span>':""}
+    </div>
+    <div class="top">
+      <figure class="plan" style="margin:0">${planSVG(d)}<figcaption>Parzelle aus der amtlichen Vermessung${(d.bldg||d.roofs?.length)?", Dachflächen rot":""}</figcaption></figure>
+      <div class="score">
+        <div class="gauge">${gaugeSVG(ev.score)}<div class="num"><strong>${ev.score}</strong><span>von 100</span></div></div>
+        <div class="level">${ev.level}</div>
+        <ul class="signals">${ev.signals.map(([t,x])=>`<li><span class="pill ${t}">${t==="plus"?"Plus":"Info"}</span><span>${x}</span></li>`).join("")}</ul>
+      </div>
+    </div>
+    <dl class="facts" style="margin:0">${facts.map(([k,v,s])=>`<div class="fact"><dt>${k}</dt><dd>${v}${s?`<small>${s}</small>`:""}</dd></div>`).join("")}</dl>
+    <div class="note">Die zulässige Ausnützung legt Ihre Gemeinde in der Bau- und Zonenordnung fest. Diese Werte sind in den Bundesdaten nicht enthalten. Für eine verbindliche Einschätzung prüfen wir das Grundstück persönlich.</div>
+  </article>`;
+  renderLead(d, ev);
+}
+
+function renderLead(d, ev){
+  document.getElementById("leadWrap").innerHTML = `
+  <form class="leadbox" id="leadForm" novalidate style="position:relative">
+    <div><div class="eyebrow">Nächster Schritt</div><h3>Persönliche Einschätzung für ${esc(d.label.split(",")[0])}</h3></div>
+    <p>Unsere Projektentwickler prüfen die Zonenordnung Ihrer Gemeinde und rechnen aus, wie viel Wohnfläche auf Ihrem Grundstück möglich ist. Unverbindlich und kostenlos.</p>
+    <div class="fld"><label>Ich bin</label>
+      <div class="radio">
+        ${["Eigentümer/in","Teil einer Erbengemeinschaft","Stockwerkeigentümer/in","Andere"].map((t,i)=>`<label><input type="radio" name="role" id="role${i}" value="${t}" ${i===0?"checked":""}>${t}</label>`).join("")}
+      </div></div>
+    <div class="fld"><label>Mich interessiert</label>
+      <div class="radio">
+        ${["Verkauf","Gemeinsame Entwicklung","Erst mal informieren"].map((t,i)=>`<label><input type="radio" name="goal" id="goal${i}" value="${t}" ${i===2?"checked":""}>${t}</label>`).join("")}
+      </div></div>
+    <div class="grid2">
+      <div class="fld"><label for="lname">Name</label><input id="lname" name="fullname" autocomplete="name" required></div>
+      <div class="fld"><label for="lphone">Telefon</label><input id="lphone" name="phone" type="tel" autocomplete="tel" placeholder="+41 …"></div>
+    </div>
+    <div class="fld"><label for="lmail">E-Mail</label><input id="lmail" name="email" type="email" autocomplete="email" required></div>
+    <div aria-hidden="true" style="position:absolute;left:-9999px"><label for="lweb">Website</label><input id="lweb" name="website" tabindex="-1" autocomplete="off"></div>
+    <div class="err" id="lerr" hidden></div>
+    <div><button class="btn" type="submit">Einschätzung anfordern</button></div>
+    <div class="fine">Wir verwenden Ihre Angaben nur für diese Anfrage. Potenzial-Score: ${ev.score}/100.</div>
+  </form>`;
+  document.getElementById("leadForm").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const f=e.target, err=document.getElementById("lerr");
+    if(!f.fullname.value.trim()||!/^\S+@\S+\.\S+$/.test(f.email.value)){ err.textContent="Bitte Name und eine gültige E-Mail-Adresse angeben."; err.hidden=false; return; }
+    const btn=f.querySelector("button[type=submit]"); btn.disabled=true; btn.textContent="Wird gesendet …"; err.hidden=true;
+    const payload={
+      name:f.fullname.value.trim(), email:f.email.value.trim(), phone:f.phone.value.trim(),
+      role:f.role.value, goal:f.goal.value, website:f.website.value,
+      address:d.label, egrid:d.egrid||null, parzelle:d.parzelle||null, gemeinde:d.gemeinde||null,
+      score:ev.score, level:ev.level, demo:!!d.demo,
+      facts:{parcelArea:d.parcelArea||null, year:d.year||d.yearApprox||null, klasse:d.klasse||null, floors:d.floors||null,
+             zone:d.zone||null, oev:d.oev||null, heat:d.heat||null, solar:d.solar||null},
+      page:document.referrer||location.href
+    };
+    try{
+      const r=await fetch("/api/lead",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
+      if(!r.ok) throw new Error(r.status);
+      document.getElementById("leadWrap").innerHTML = `<div class="leadbox ok"><h3>Danke, ${esc(payload.name.split(" ")[0])}.</h3>
+        <p>Wir melden uns innert zwei Arbeitstagen mit einer ersten Einschätzung zu ${esc(d.label)}.</p></div>`;
+      parent.postMessage({type:"grundstueck-check:lead",score:ev.score},"*");
+    }catch(x){
+      err.textContent="Die Anfrage konnte nicht gesendet werden. Bitte versuchen Sie es nochmals oder rufen Sie uns an.";
+      err.hidden=false; btn.disabled=false; btn.textContent="Einschätzung anfordern";
+    }
+    fitFrame();
+  });
+}
+
+/* ---------- Ablauf ---------- */
+const STEPS=["Parzelle in der amtlichen Vermessung suchen","Gebäudedaten im GWR abfragen","Bauzone und ÖV-Erschliessung prüfen","Solarpotenzial des Dachs ermitteln","Potenzial berechnen"];
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+function stepper(){
+  const el=document.getElementById("steps"); el.hidden=false;
+  el.innerHTML=STEPS.map(s=>`<li>${s}</li>`).join("");
+  const li=[...el.children];
+  return i=>li.forEach((l,k)=>{l.className=k<i?"done":k===i?"run":"";});
+}
+
+async function run(source){
+  document.getElementById("result").innerHTML=""; document.getElementById("leadWrap").innerHTML="";
+  const step=stepper(); let data;
+  if(source.demo){ for(let i=0;i<=STEPS.length;i++){ step(i); await wait(380);} data={...source}; }
+  else { data=await analyseLive(source,step); step(STEPS.length); await wait(250); }
+  document.getElementById("steps").hidden=true;
+  render(data);
+  if(parent===window) document.getElementById("result").scrollIntoView({behavior:"smooth",block:"start"});
+  else parent.postMessage({type:"grundstueck-check:scroll"},"*");
+}
+
+/* ---------- Adresssuche ---------- */
+const inp=document.getElementById("addr"), sug=document.getElementById("sugg");
+let hits=[], sel=-1, timer;
+function showSugg(list){
+  hits=list; sel=-1;
+  if(!list.length){ sug.hidden=true; inp.setAttribute("aria-expanded","false"); return; }
+  sug.innerHTML=list.map((h,i)=>`<li role="option" id="s${i}" data-i="${i}">${h.labelHtml||esc(h.label)}</li>`).join("");
+  sug.hidden=false; inp.setAttribute("aria-expanded","true");
+}
+function demoMatches(q){ q=q.toLowerCase(); return DEMO.filter(d=>d.label.toLowerCase().includes(q)); }
+inp.addEventListener("input",()=>{
+  clearTimeout(timer); const q=inp.value.trim();
+  if(q.length<3){ showSugg([]); return; }
+  timer=setTimeout(async()=>{
+    let list=demoMatches(q);
+    if(LIVE){ try{ list=(await searchLive(q)).concat(list); }catch(e){} }
+    showSugg(list.slice(0,6));
+  },220);
+});
+inp.addEventListener("keydown",e=>{
+  if(sug.hidden) return;
+  const li=[...sug.children];
+  if(e.key==="ArrowDown"){ sel=Math.min(li.length-1,sel+1); e.preventDefault(); }
+  else if(e.key==="ArrowUp"){ sel=Math.max(0,sel-1); e.preventDefault(); }
+  else if(e.key==="Escape"){ showSugg([]); return; }
+  else return;
+  li.forEach((l,i)=>l.setAttribute("aria-selected",i===sel)); inp.setAttribute("aria-activedescendant","s"+sel);
+});
+sug.addEventListener("mousedown",e=>{ const li=e.target.closest("li"); if(li) pick(+li.dataset.i); });
+function pick(i){ const h=hits[i]; if(!h) return; inp.value=h.label; showSugg([]); run(h); }
+document.getElementById("searchForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  if(!sug.hidden && hits.length){ pick(sel>=0?sel:0); return; }
+  const q=inp.value.trim(); if(q.length<3) return;
+  let list=demoMatches(q);
+  if(!list.length && LIVE){ try{ list=await searchLive(q); }catch(e){} }
+  if(list.length){ hits=list; pick(0); }
+  else { document.getElementById("result").innerHTML=`<div class="leadbox"><h3>Adresse nicht gefunden</h3><p>${LIVE?"Bitte prüfen Sie Strasse, Hausnummer und Ort.":"Der Adressdienst ist im Moment nicht erreichbar. Bitte versuchen Sie es später nochmals."}</p></div>`; document.getElementById("leadWrap").innerHTML=""; }
+});
+document.querySelectorAll("[data-demo]").forEach(b=>b.addEventListener("click",()=>{ const d=DEMO[+b.dataset.demo]; inp.value=d.label; run(d); }));
+document.addEventListener("click",e=>{ if(!e.target.closest(".search")) showSugg([]); });
+
+/* iframe: Höhe an die Webflow-Seite melden */
+function fitFrame(){ if(parent!==window) parent.postMessage({type:"grundstueck-check:height",height:document.documentElement.scrollHeight},"*"); }
+try{ new ResizeObserver(fitFrame).observe(document.body); }catch(e){}
+window.addEventListener("load",fitFrame);
+
+/* Start: Live-Verbindung testen und Beispiel zeigen */
+ping();
+render(DEMO[0]);
+</script>
+
+</body>
+</html>
