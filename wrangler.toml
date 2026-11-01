@@ -9,6 +9,10 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = ["/api/*"]
 
+[vars]
+# Empfänger der Lead-Mails. Der Resend-Key ist ein Secret und steht nur im Dashboard.
+LEAD_EMAIL_TO = "stefan.steuble@ttms.ch"
+
 [observability]
 enabled = true
 
