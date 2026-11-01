@@ -23,13 +23,15 @@ wrangler.toml
 3. **Deploy**. Jeder Push auf `main` deployt automatisch.
 4. Unter **Settings > Variables and Secrets** setzen:
    - `LEAD_WEBHOOK_URL`: Webhook, an den jeder Lead als JSON geht (enthält zusätzlich ein Feld `text` als Kurzfassung, z.B. für Slack)
+   - `RESEND_API_KEY` (als **Secret**) und `LEAD_EMAIL_TO` (Text): schickt jeden Lead als E-Mail über [Resend](https://resend.com). Ohne verifizierte Domain akzeptiert Resend als Empfänger nur die Adresse des Resend-Kontos.
+   - optional `LEAD_EMAIL_FROM`: Absender, sobald die Domain bei Resend verifiziert ist, z.B. `Grundstück-Check <anfragen@kunde.ch>`
    - optional `ALLOWED_ORIGINS`: nur nötig, wenn das Formular von einer fremden Domain aus direkt aufgerufen wird
 5. Optional KV als Backup aller Leads: `npx wrangler kv namespace create LEADS`, die ID in `wrangler.toml` eintragen (Block ist vorbereitet) und pushen.
 6. Optional eigene Domain, z.B. `check.kunde.ch`: **Settings > Domains & Routes** > **Add** > **Custom domain**.
 
 Die Standard-Adresse ist `https://horizon-prototyp.<dein-account>.workers.dev`.
 
-Ohne `LEAD_WEBHOOK_URL` und ohne `LEADS` antwortet der Endpunkt mit Erfolg, der Lead landet dann aber nur im Log (Worker > Observability > Logs). Vor dem Livegang also mindestens eines davon einrichten.
+Ohne `LEAD_WEBHOOK_URL`, Resend und `LEADS` antwortet der Endpunkt mit Erfolg, der Lead landet dann aber nur im Log (Worker > Observability > Logs). Vor dem Livegang also mindestens eines davon einrichten.
 
 ## Einbindung in Webflow
 

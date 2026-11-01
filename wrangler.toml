@@ -1,6 +1,8 @@
 name = "horizon-prototyp"
 main = "src/worker.js"
 compatibility_date = "2026-10-01"
+# Variablen aus dem Dashboard bei jedem Deploy behalten
+keep_vars = true
 
 [assets]
 directory = "./public"

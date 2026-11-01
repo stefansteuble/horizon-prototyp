@@ -1,2 +1,4 @@
 # Lokale Secrets für "npm run dev" (nicht committen)
 LEAD_WEBHOOK_URL=
+RESEND_API_KEY=
+LEAD_EMAIL_TO=
