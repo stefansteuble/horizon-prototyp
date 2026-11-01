@@ -36,7 +36,7 @@ Dann in Webflow ein **Embed**-Element an der gewünschten Stelle einfügen:
 
 ```html
 <div data-grundstueck-check></div>
-<script src="https://grundstueck-check.pages.dev/embed.js" defer></script>
+<script src="https://horizon-prototyp.pages.dev/embed.js" defer></script>
 ```
 
 Die Domain durch die eigene Pages-Domain bzw. Custom Domain ersetzen. Das iframe passt seine Höhe automatisch an.
