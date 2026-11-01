@@ -1,4 +1,4 @@
-# Cloudflare Pages Header-Regeln
+# Header-Regeln für die statischen Dateien (Cloudflare Workers Static Assets)
 # frame-ancestors: Domains, die das Tool per iframe einbetten dürfen.
 # Die Kundendomain hier ergänzen, z.B. https://www.kunde.ch
 /*

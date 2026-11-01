@@ -1,7 +1,7 @@
-// Cloudflare Pages Function: POST /api/lead
+// POST /api/lead
 // Nimmt eine Anfrage aus dem Grundstück-Check entgegen, prüft sie und leitet sie weiter.
 //
-// Umgebungsvariablen (Cloudflare Dashboard > Pages > Settings > Variables and Secrets):
+// Umgebungsvariablen (Cloudflare Dashboard > Workers & Pages > horizon-prototyp > Settings > Variables and Secrets):
 //   LEAD_WEBHOOK_URL   optional  Webhook für CRM / Make / Zapier / n8n / Slack (JSON-POST)
 //   ALLOWED_ORIGINS    optional  Komma-getrennt, z.B. "https://www.kunde.ch,https://kunde.webflow.io"
 // Bindings:
@@ -9,7 +9,7 @@
 
 const MAX_BODY = 10_000;
 
-export async function onRequestPost({ request, env }) {
+export async function handleLead(request, env) {
   const origin = request.headers.get("origin") || "";
   if (!originAllowed(origin, request, env)) return json({ error: "origin_not_allowed" }, 403);
 

@@ -1,32 +1,35 @@
 # Grundstück-Check
 
-Lead-Tool für Immobilienentwickler: Eigentümer geben ihre Adresse ein und sehen eine automatische Ersteinschätzung ihres Grundstücks. Die Daten stammen live aus [geo.admin.ch](https://api3.geo.admin.ch): Parzelle, Gebäude (GWR), Bauzone, ÖV-Güteklasse und Solarpotenzial. Danach können sie eine persönliche Einschätzung anfordern. Die Anfrage geht an `/api/lead` und wird von dort an einen Webhook (CRM, Make, Zapier, n8n, Slack) und/oder in Cloudflare KV weitergeleitet.
+Lead-Tool für Immobilienentwickler: Eigentümer geben ihre Adresse ein und sehen eine automatische Ersteinschätzung ihres Grundstücks. Die Daten stammen live aus [geo.admin.ch](https://api3.geo.admin.ch): Parzelle, Gebäude (GWR), Bauzone, ÖV-Güteklasse und Solarpotenzial. Danach können sie eine persönliche Einschätzung anfordern. Die Anfrage geht an `/api/lead` und wird vom Worker an einen Webhook (CRM, Make, Zapier, n8n, Slack) und/oder in Cloudflare KV weitergeleitet.
 
 ```
 public/
   index.html      die App (statisch, ohne Build-Schritt)
   embed.js        Einbettung per iframe mit automatischer Höhe
   _headers        Sicherheits-Header, erlaubte iframe-Domains
-functions/
-  api/lead.js     Cloudflare Pages Function: Lead prüfen und weiterleiten
+src/
+  worker.js       Cloudflare Worker: liefert public/ aus, leitet /api/lead weiter
+  lead.js         Lead prüfen und weiterleiten (Webhook und/oder KV)
 wrangler.toml
 ```
 
-## Deployment auf Cloudflare Pages (über GitHub)
+## Deployment auf Cloudflare (Worker, über GitHub)
 
-1. Cloudflare Dashboard > **Workers & Pages** > **Create** > **Pages** > **Connect to Git**, dieses Repo wählen.
+1. Cloudflare Dashboard > **Workers & Pages** > **Create** > **Import a repository**, dieses Repo wählen.
 2. Build-Einstellungen:
-   - Framework preset: **None**
    - Build command: *(leer lassen)*
-   - Build output directory: `public`
-3. **Save and Deploy**. Jeder Push auf `main` deployt automatisch, jeder andere Branch bekommt eine Preview-URL.
+   - Deploy command: `npx wrangler deploy` (Standard)
+   - Der Worker-Name im Dashboard muss mit `name` in `wrangler.toml` übereinstimmen (`horizon-prototyp`).
+3. **Deploy**. Jeder Push auf `main` deployt automatisch.
 4. Unter **Settings > Variables and Secrets** setzen:
    - `LEAD_WEBHOOK_URL`: Webhook, an den jeder Lead als JSON geht (enthält zusätzlich ein Feld `text` als Kurzfassung, z.B. für Slack)
    - optional `ALLOWED_ORIGINS`: nur nötig, wenn das Formular von einer fremden Domain aus direkt aufgerufen wird
-5. Optional KV als Backup aller Leads: `npx wrangler kv namespace create LEADS`, dann unter **Settings > Bindings** einen KV-Namespace mit dem Namen `LEADS` verbinden.
-6. Optional eigene Domain, z.B. `check.kunde.ch`: **Custom domains** > **Set up a domain**.
+5. Optional KV als Backup aller Leads: `npx wrangler kv namespace create LEADS`, die ID in `wrangler.toml` eintragen (Block ist vorbereitet) und pushen.
+6. Optional eigene Domain, z.B. `check.kunde.ch`: **Settings > Domains & Routes** > **Add** > **Custom domain**.
 
-Ohne `LEAD_WEBHOOK_URL` und ohne `LEADS` antwortet der Endpunkt mit Erfolg, der Lead landet dann aber nur im Log (Pages > Functions > Real-time Logs). Vor dem Livegang also mindestens eines davon einrichten.
+Die Standard-Adresse ist `https://horizon-prototyp.<dein-account>.workers.dev`.
+
+Ohne `LEAD_WEBHOOK_URL` und ohne `LEADS` antwortet der Endpunkt mit Erfolg, der Lead landet dann aber nur im Log (Worker > Observability > Logs). Vor dem Livegang also mindestens eines davon einrichten.
 
 ## Einbindung in Webflow
 
@@ -36,10 +39,10 @@ Dann in Webflow ein **Embed**-Element an der gewünschten Stelle einfügen:
 
 ```html
 <div data-grundstueck-check></div>
-<script src="https://horizon-prototyp.pages.dev/embed.js" defer></script>
+<script src="https://horizon-prototyp.DEIN-ACCOUNT.workers.dev/embed.js" defer></script>
 ```
 
-Die Domain durch die eigene Pages-Domain bzw. Custom Domain ersetzen. Das iframe passt seine Höhe automatisch an.
+Die Domain durch die eigene workers.dev-Adresse bzw. Custom Domain ersetzen. Das iframe passt seine Höhe automatisch an.
 
 Für Conversion-Tracking feuert das Embed ein DOM-Event, sobald ein Lead gesendet wurde:
 
@@ -56,7 +59,7 @@ document.addEventListener("grundstueck-check:lead", function (e) {
 ```bash
 npm install
 cp .dev.vars.example .dev.vars   # optional Webhook eintragen
-npm run dev                      # http://localhost:8788
+npm run dev                      # http://localhost:8787
 ```
 
 ## Datenquellen (alle offen, ohne API-Key)
