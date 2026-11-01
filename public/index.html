@@ -500,7 +500,7 @@ function initMap(){
   map.touchZoomRotate.disableRotation();
   map.addControl(new maplibregl.NavigationControl({showCompass:false}),"top-right");
   map.addControl(new maplibregl.AttributionControl({compact:true,
-    customAttribution:'© <a href="https://www.swisstopo.admin.ch" target="_blank" rel="noopener">swisstopo</a>, Amtliche Vermessung der Kantone'}),"bottom-right");
+    customAttribution:"Amtliche Vermessung der Kantone"}),"bottom-right");
   mapReady=new Promise(res=>map.on("load",()=>{
     map.addSource("av",{type:"raster",tileSize:256,minzoom:12,maxzoom:19,
       tiles:["https://wmts.geo.admin.ch/1.0.0/ch.kantone.cadastralwebmap-farbe/default/current/3857/{z}/{x}/{y}.png"]});
