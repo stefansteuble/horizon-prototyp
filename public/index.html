@@ -13,6 +13,7 @@
   --accent:#1E6A4E; --accent-ink:#FFFFFF; --accent-soft:#E2EEE8;
   --bldg:#E7B9B6; --bldg-line:#B5605B;
   --good:#1E6A4E; --warn:#A8701A; --low:#7A8580;
+  --sim:#E0803F; --sim-soft:#FCEFE5; --sim-ink:#A4501A;
   --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
   --f-body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
@@ -21,11 +22,11 @@
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --paper:#111714; --sheet:#18201C; --ink:#E6ECE8; --muted:#97A39D; --line:#2C3832;
   --accent:#5BBF94; --accent-ink:#0D1A14; --accent-soft:#1D3229;
-  --bldg:#5A3533; --bldg-line:#D98C86; --good:#5BBF94; --warn:#E0A74A; --low:#8C9892; color-scheme:dark}}
+  --bldg:#5A3533; --bldg-line:#D98C86; --good:#5BBF94; --warn:#E0A74A; --low:#8C9892; --sim:#E89254; --sim-soft:#3A2617; --sim-ink:#F2B286; color-scheme:dark}}
 :root[data-theme="dark"]{
   --paper:#111714; --sheet:#18201C; --ink:#E6ECE8; --muted:#97A39D; --line:#2C3832;
   --accent:#5BBF94; --accent-ink:#0D1A14; --accent-soft:#1D3229;
-  --bldg:#5A3533; --bldg-line:#D98C86; --good:#5BBF94; --warn:#E0A74A; --low:#8C9892; color-scheme:dark}
+  --bldg:#5A3533; --bldg-line:#D98C86; --good:#5BBF94; --warn:#E0A74A; --low:#8C9892; --sim:#E89254; --sim-soft:#3A2617; --sim-ink:#F2B286; color-scheme:dark}
 
 *{box-sizing:border-box}
 html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -130,6 +131,19 @@ footer a{color:inherit}
   .field{flex-direction:column}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* Bebauungssimulation */
+.sim{padding:18px 20px;border-bottom:1px solid var(--line);display:grid;gap:12px}
+.sim-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.sim-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.sim-tile{border:1px solid var(--line);border-radius:8px;padding:12px 14px;min-width:0}
+.sim-tile.key{border-color:var(--sim);background:var(--sim-soft)}
+.sim-tile dt{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.sim-tile dd{margin:4px 0 0;font-family:var(--f-display);font-stretch:85%;font-weight:700;font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}
+.sim-tile.key dd{color:var(--sim-ink)}
+.sim-tile dd small{display:block;font-family:var(--f-body);font-stretch:100%;font-weight:400;font-size:12.5px;color:var(--muted);margin-top:4px}
+.sim-note{margin:0;font-size:12.5px;color:var(--muted)}
+.sim-tag{font-family:var(--f-mono);font-size:11px;color:var(--sim-ink);border:1px solid var(--sim);border-radius:4px;padding:2px 6px}
+@media (max-width:620px){ .sim-grid{grid-template-columns:1fr} }
 /* Karte */
 .mapband{position:relative;border-bottom:1px solid var(--line);background:var(--paper)}
 .map{height:360px;width:100%}
@@ -310,7 +324,7 @@ async function analyseLive(hit, onStep){
       getJSON(identifyUrl(hit.e,hit.n,"ch.are.bauzonen",0,false)),
       getJSON(identifyUrl(hit.e,hit.n,"ch.are.gueteklassen_oev",0,false))
     ]);
-    const za=props((z.results||[])[0]); out.zone=za.ch_bez_d||null; out.gemeinde=out.gemeinde||za.name||null;
+    const za=props((z.results||[])[0]); out.zone=za.ch_bez_d||null; out.zoneCode=+za.ch_code_hn||null; out.gemeinde=out.gemeinde||za.name||null;
     const oa=props((o.results||[])[0]); const k=String(oa.klasse_de||"").charAt(0); out.oev="ABCD".includes(k)&&k?k:null;
   }catch(e){}
   // 4 Solarpotenzial und Dachumriss (Sonnendach), alle Dachflächen des Gebäudes
@@ -333,9 +347,97 @@ async function analyseLive(hit, onStep){
   return out;
 }
 
+/* ---------- Bebauungssimulation (Demo mit Standardannahmen pro Zonentyp) ----------
+   Ablauf: Parzelle um den Grenzabstand nach innen verkleinern = bebaubare Fläche,
+   mit der zulässigen Geschosszahl hochziehen, durch die Ausnützungsziffer (AZ) begrenzen.
+   Die Werte sind typische Schweizer Mittelwerte, nicht die Regeln einer bestimmten Gemeinde. */
+const ZONE_RULES = {
+  wohn:    {name:"Wohnzonen",    abstand:5, geschosse:3, az:[0.55,0.80]},
+  misch:   {name:"Mischzonen",   abstand:5, geschosse:4, az:[0.80,1.10]},
+  zentrum: {name:"Zentrumszonen",abstand:4, geschosse:5, az:[1.20,1.80]},
+  arbeit:  {name:"Arbeitszonen", abstand:5, geschosse:4, az:[0.90,1.40]}
+};
+const GESCHOSSHOEHE = 3.0, WOHNUNG_M2 = 95, NUTZFLAECHE = 0.8;
+function zoneRules(d){
+  const c=d.zoneCode, z=String(d.zone||"").toLowerCase();
+  if(c===11||/wohn/.test(z)) return ZONE_RULES.wohn;
+  if(c===13||/misch/.test(z)) return ZONE_RULES.misch;
+  if(c===14||/zentrum|kern/.test(z)) return ZONE_RULES.zentrum;
+  if(c===12||/arbeit|gewerbe|industrie/.test(z)) return ZONE_RULES.arbeit;
+  return null;
+}
+function signedArea(r){ let a=0; for(let i=0;i<r.length;i++){ const [x1,y1]=r[i],[x2,y2]=r[(i+1)%r.length]; a+=x1*y2-x2*y1; } return a/2; }
+function cleanRing(r){
+  let out=r.slice(); if(out.length>1){ const a=out[0],b=out[out.length-1]; if(a[0]===b[0]&&a[1]===b[1]) out.pop(); }
+  out=out.filter((p,i)=>{ const q=out[(i+1)%out.length]; return Math.hypot(q[0]-p[0],q[1]-p[1])>0.3; });
+  return signedArea(out)<0 ? out.reverse() : out;
+}
+function segIntersect(a,b,c,d){
+  const o=(p,q,r)=>(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);
+  return o(a,b,c)*o(a,b,d)<0 && o(c,d,a)*o(c,d,b)<0;
+}
+function selfIntersects(r){
+  const n=r.length;
+  for(let i=0;i<n;i++) for(let j=i+2;j<n;j++){ if(i===0&&j===n-1) continue;
+    if(segIntersect(r[i],r[(i+1)%n],r[j],r[(j+1)%n])) return true; }
+  return false;
+}
+function pointInRing(p,r){ let ins=false; for(let i=0,j=r.length-1;i<r.length;j=i++){ const [xi,yi]=r[i],[xj,yj]=r[j];
+  if(((yi>p[1])!==(yj>p[1])) && p[0]<(xj-xi)*(p[1]-yi)/(yj-yi)+xi) ins=!ins; } return ins; }
+/* Polygon um dist Meter nach innen versetzen (Parzellen sind meist fast konvex).
+   Fallback: zentrische Verkleinerung auf die erwartete Restfläche. */
+function insetRing(ring, dist){
+  const r=cleanRing(ring), n=r.length; if(n<3) return null;
+  const lines=r.map((p,i)=>{ const q=r[(i+1)%n], dx=q[0]-p[0], dy=q[1]-p[1], L=Math.hypot(dx,dy);
+    const nx=-dy/L, ny=dx/L; return {p:[p[0]+nx*dist,p[1]+ny*dist], d:[dx/L,dy/L]}; });
+  const res=[];
+  for(let i=0;i<n;i++){
+    const a=lines[(i-1+n)%n], b=lines[i], den=a.d[0]*b.d[1]-a.d[1]*b.d[0];
+    if(Math.abs(den)<1e-6){ res.push(b.p); continue; }
+    const t=((b.p[0]-a.p[0])*b.d[1]-(b.p[1]-a.p[1])*b.d[0])/den;
+    res.push([a.p[0]+a.d[0]*t, a.p[1]+a.d[1]*t]);
+  }
+  const A0=signedArea(r), A1=signedArea(res);
+  if(A1>1 && A1<A0 && !selfIntersects(res) && res.every(p=>pointInRing(p,r))) return res;
+  // Fallback
+  let per=0; for(let i=0;i<n;i++){ const q=r[(i+1)%n]; per+=Math.hypot(q[0]-r[i][0],q[1]-r[i][1]); }
+  const target=A0-per*dist+4*dist*dist; if(target<=20) return null;
+  return scaleRing(r, Math.sqrt(target/A0));
+}
+function scaleRing(r,f){ const cx=r.reduce((t,p)=>t+p[0],0)/r.length, cy=r.reduce((t,p)=>t+p[1],0)/r.length;
+  return r.map(([x,y])=>[cx+(x-cx)*f, cy+(y-cy)*f]); }
+const rangeFmt=(a,b,unit="")=>{ const A=Math.round(a), B=Math.round(b); return (A===B?fmt(A):`${fmt(A)}–${fmt(B)}`)+unit; };
+function simulate(d){
+  const rules=zoneRules(d);
+  if(!rules||!d.parcel||!d.parcelArea) return null;
+  const area=d.parcelArea;
+  const foot=insetRing(d.parcel, rules.abstand);
+  const footArea=foot?Math.abs(signedArea(foot)):0;
+  if(footArea<40) return {rules, foot:null, footArea:0, tooSmall:true};
+  const gfGeom=footArea*rules.geschosse;
+  const gfLo=Math.min(gfGeom, rules.az[0]*area), gfHi=Math.min(gfGeom, rules.az[1]*area);
+  const existing = d.empty ? 0 : (d.footprint&&d.floors ? d.footprint*d.floors : null);
+  const res = existing==null ? null : [gfLo,gfHi].map(g=>Math.max(0,(g-existing)/g*100));
+  // Volumen für die Darstellung: so viele Geschosse wie für die obere Spanne nötig
+  let floors=Math.min(rules.geschosse, Math.max(1, Math.round(gfHi/footArea)));
+  let shape=foot;
+  if(gfHi<footArea){ floors=1; shape=scaleRing(foot, Math.sqrt(gfHi/footArea)); }
+  return {rules, foot, shape, floors, footArea, gfLo, gfHi, existing,
+    reserve: res ? [Math.min(...res), Math.max(...res)] : null,
+    units: [gfLo,gfHi].map(g=>Math.max(0,Math.floor(g*NUTZFLAECHE/WOHNUNG_M2)))};
+}
+function simText(sim){
+  if(!sim||!sim.reserve) return null;
+  const [a,b]=sim.reserve.map(v=>Math.round(v/5)*5);
+  return a===b?`${a} %`:`${a}–${b} %`;
+}
+
 /* ---------- Bewertung (Indikatoren, kein Gutachten) ---------- */
-function evaluate(d){
+function evaluate(d, sim){
   let s=0; const sig=[];
+  if(sim&&sim.reserve){ const mid=(sim.reserve[0]+sim.reserve[1])/2;
+    if(mid>=40){ s+=15; sig.push(["plus",`Gemäss Simulation sind ca. ${simText(sim)} der zulässigen Geschossfläche noch ungenutzt.`]); }
+    else if(mid>=20){ s+=8; sig.push(["plus",`Gemäss Simulation sind ca. ${simText(sim)} der zulässigen Geschossfläche noch ungenutzt.`]); } }
   const now=new Date().getFullYear();
   const yr=d.year||d.yearApprox;
   if(yr){ const age=now-yr;
@@ -380,6 +482,7 @@ function planSVG(d){
   let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Parzellenplan, ${fmt(d.parcelArea)} Quadratmeter">`;
   s+=`<polygon points="${poly(d.parcel)}" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
   shapes.forEach(r=>{ s+=`<polygon points="${poly(r)}" fill="var(--bldg)" stroke="var(--bldg-line)" stroke-width="1"/>`; });
+  if(d.sim&&d.sim.shape) s+=`<polygon points="${poly(d.sim.shape)}" fill="var(--sim)" fill-opacity=".18" stroke="var(--sim)" stroke-width="1.6" stroke-dasharray="5 3"/>`;
   if(d.point&&!shapes.length) s+=`<circle cx="${P(d.point).split(",")[0]}" cy="${P(d.point).split(",")[1]}" r="4" fill="var(--bldg-line)"/>`;
   s+=`<g transform="translate(${W-16},16)" fill="var(--muted)"><path d="M0,-10 L4,4 L0,1 L-4,4 Z"/><text y="16" text-anchor="middle" font-size="9" font-family="var(--f-mono)">N</text></g>`;
   s+=`<g transform="translate(8,${H-8})" stroke="var(--ink)" stroke-width="1.2"><line x1="0" y1="0" x2="${bar.toFixed(1)}" y2="0"/><line x1="0" y1="-4" x2="0" y2="0"/><line x1="${bar.toFixed(1)}" y1="-4" x2="${bar.toFixed(1)}" y2="0"/></g>`;
@@ -396,7 +499,8 @@ function gaugeSVG(v){
 }
 
 function render(d){
-  const ev=evaluate(d);
+  const sim=simulate(d); d.sim=sim;
+  const ev=evaluate(d, sim);
   const useMap = !d.demo && !!d.parcel && !!window.maplibregl && d.e!=null;
   const gf=d.footprint&&d.floors?d.footprint*d.floors:null;
   const facts=[
@@ -425,6 +529,7 @@ function render(d){
         <ul class="signals">${ev.signals.map(([t,x])=>`<li><span class="pill ${t}">${t==="plus"?"Plus":"Info"}</span><span>${x}</span></li>`).join("")}</ul>
       </div>
     </div>
+    ${simBlock(sim)}
     <dl class="facts" style="margin:0">${facts.map(([k,v,s])=>`<div class="fact"><dt>${k}</dt><dd>${v}${s?`<small>${s}</small>`:""}</dd></div>`).join("")}</dl>
     <div class="note">Die zulässige Ausnützung legt Ihre Gemeinde in der Bau- und Zonenordnung fest. Diese Werte sind in den Bundesdaten nicht enthalten. Für eine verbindliche Einschätzung prüfen wir das Grundstück persönlich.</div>
   </article>`;
@@ -444,6 +549,24 @@ function render(d){
     if(c3dOn) show3D(d).catch(()=>{});
   }
   renderLead(d, ev);
+}
+
+function simBlock(sim){
+  if(!sim) return "";
+  const r=sim.rules, az=r.az.map(v=>v.toFixed(2).replace(".",",")).join("–");
+  const note=`Annahmen für ${r.name}: Grenzabstand ${r.abstand} m, max. ${r.geschosse} Geschosse, Ausnützungsziffer ${az}. Die Bau- und Zonenordnung Ihrer Gemeinde kann davon abweichen.`;
+  if(sim.tooSmall) return `<section class="sim"><div class="sim-head"><div class="eyebrow">Bebauungssimulation</div><span class="sim-tag">Schätzung</span></div>
+    <p class="sim-note">Nach Abzug der Grenzabstände bleibt auf dieser Parzelle keine sinnvolle bebaubare Fläche. ${note}</p></section>`;
+  const res=simText(sim);
+  return `<section class="sim">
+    <div class="sim-head"><div class="eyebrow">Bebauungssimulation</div><span class="sim-tag">Schätzung mit Standardwerten</span></div>
+    <dl class="sim-grid" style="margin:0">
+      <div class="sim-tile key"><dt>Ausbau-Reserve</dt><dd>${res||"–"}<small>${res?"der zulässigen Geschossfläche ungenutzt":"bestehende Fläche unbekannt"}</small></dd></div>
+      <div class="sim-tile"><dt>Zulässige Geschossfläche</dt><dd>${rangeFmt(sim.gfLo,sim.gfHi," m²")}<small>${sim.existing!=null?`heute ca. ${fmt(sim.existing)} m²`:"&nbsp;"}</small></dd></div>
+      <div class="sim-tile"><dt>Mögliche Wohnungen</dt><dd>${rangeFmt(sim.units[0],sim.units[1])}<small>bei ca. ${WOHNUNG_M2} m² pro Wohnung</small></dd></div>
+    </dl>
+    <p class="sim-note">${note} Das mögliche Volumen ist in der Karte orange eingezeichnet.</p>
+  </section>`;
 }
 
 function renderLead(d, ev){
@@ -481,7 +604,9 @@ function renderLead(d, ev){
       kanton:d.kanton||null, geoportalUrl:d.geoportal||null,
       score:ev.score, level:ev.level, demo:!!d.demo,
       facts:{parcelArea:d.parcelArea||null, year:d.year||d.yearApprox||null, klasse:d.klasse||null, floors:d.floors||null,
-             zone:d.zone||null, oev:d.oev||null, heat:d.heat||null, solar:d.solar||null},
+             zone:d.zone||null, oev:d.oev||null, heat:d.heat||null, solar:d.solar||null,
+             reserve:simText(d.sim), gfMax:d.sim&&d.sim.gfHi?rangeFmt(d.sim.gfLo,d.sim.gfHi," m²"):null,
+             units:d.sim&&d.sim.units?rangeFmt(d.sim.units[0],d.sim.units[1]):null},
       page:document.referrer||location.href
     };
     try{
@@ -544,6 +669,9 @@ function initMap(){
     map.addLayer({id:"parcel-fill",type:"fill",source:"sel",filter:["==",["get","k"],"parcel"],paint:{"fill-color":acc,"fill-opacity":0.22}});
     map.addLayer({id:"roof",type:"fill",source:"sel",filter:["==",["get","k"],"roof"],paint:{"fill-color":cssVar("--bldg-line")||"#B5605B","fill-opacity":0.55}});
     map.addLayer({id:"parcel-line",type:"line",source:"sel",filter:["==",["get","k"],"parcel"],paint:{"line-color":acc,"line-width":3}});
+    const simC=cssVar("--sim")||"#E0803F";
+    map.addLayer({id:"sim-fill",type:"fill",source:"sel",filter:["==",["get","k"],"sim"],paint:{"fill-color":simC,"fill-opacity":0.22}});
+    map.addLayer({id:"sim-line",type:"line",source:"sel",filter:["==",["get","k"],"sim"],paint:{"line-color":simC,"line-width":2,"line-dasharray":[2,1.5]}});
     map.on("click",onMapClick);
     map.getCanvas().style.cursor="pointer";
     res();
@@ -560,6 +688,7 @@ async function attachMap(slot, d){
   const ring=abs(d.parcel);
   const feats=[{type:"Feature",properties:{k:"parcel"},geometry:{type:"Polygon",coordinates:[ring]}}];
   (d.roofs||[]).forEach(r=>feats.push({type:"Feature",properties:{k:"roof"},geometry:{type:"Polygon",coordinates:[abs(r)]}}));
+  if(d.sim&&d.sim.shape){ const sr=abs(d.sim.shape); feats.push({type:"Feature",properties:{k:"sim"},geometry:{type:"Polygon",coordinates:[sr.concat([sr[0]])]}}); }
   map.getSource("sel").setData({type:"FeatureCollection",features:feats});
   const lngs=ring.map(p=>p[0]), lats=ring.map(p=>p[1]);
   const pad=Math.min(70, Math.round(mapEl.clientHeight/5));
@@ -698,6 +827,15 @@ async function show3D(d){
   let h=400;
   try{ const [p]=await C.sampleTerrainMostDetailed(viewer.terrainProvider,[C.Cartographic.fromDegrees(cx,cy)]); if(p&&isFinite(p.height)) h=p.height; }catch(e){}
   const r=Math.max(15, Math.sqrt(d.parcelArea||400)*0.8);
+  // Mögliches Bauvolumen aus der Simulation: halbtransparente Geschossplatten
+  if(d.sim&&d.sim.shape){
+    const simPos=C.Cartesian3.fromDegreesArray(d.sim.shape.map(([x,y])=>lv95ToWgs(x+d.e,y+d.n)).flat());
+    const so=C.Color.fromCssColorString("#F08A4B");
+    for(let i=0;i<d.sim.floors;i++){
+      viewer.entities.add({polygon:{hierarchy:simPos, height:h+i*GESCHOSSHOEHE+0.15, extrudedHeight:h+(i+1)*GESCHOSSHOEHE-0.15,
+        material:so.withAlpha(0.42), outline:true, outlineColor:so}});
+    }
+  }
   // Kamera kreist um die Parzellenmitte: Ziehen dreht, Scrollen zoomt (lookAt-Modus von Cesium)
   const center=C.Cartesian3.fromDegrees(cx,cy,h+6);
   const keepHeading = fly3dFirst ? C.Math.toRadians(-25) : viewer.camera.heading;
