@@ -198,7 +198,12 @@ const GBAUP = {8011:1900,8012:1932,8013:1953,8014:1965,8015:1975,8016:1983,8017:
 const props = r => (r&&(r.properties||r.attributes))||{};
 
 /* ---------- Live-API ---------- */
-async function getJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(r.status); return r.json(); }
+/* Jede Abfrage bricht nach 8 s ab, damit die Analyse nie hängen bleibt */
+async function getJSON(url, ms=8000){
+  const c=new AbortController(), t=setTimeout(()=>c.abort(),ms);
+  try{ const r = await fetch(url,{signal:c.signal}); if(!r.ok) throw new Error(r.status); return await r.json(); }
+  finally{ clearTimeout(t); }
+}
 
 async function ping(){
   try{
@@ -269,19 +274,17 @@ async function analyseLive(hit, onStep){
   // 4 Solarpotenzial und Dachumriss (Sonnendach), alle Dachflächen des Gebäudes
   onStep(3);
   try{
-    let roofs=[];
-    if(hit.egid){
-      const f = await getJSON(`${API}/api/MapServer/find?layer=ch.bfe.solarenergie-eignung-daecher&searchText=${hit.egid}&searchField=gwr_egid&contains=false&returnGeometry=true&geometryFormat=geojson&sr=2056`);
-      roofs=f.results||[];
-    }
-    if(!roofs.length){
-      const s = await getJSON(identifyUrl(hit.e,hit.n,"ch.bfe.solarenergie-eignung-daecher",10,true));
-      roofs=s.results||[];
-    }
+    // identify im Umkreis von ca. 15 m, dann auf die Dachflächen dieses Gebäudes (EGID) filtern.
+    // (find nach gwr_egid ist auf diesem grossen Layer zu langsam.)
+    const s = await getJSON(identifyUrl(hit.e,hit.n,"ch.bfe.solarenergie-eignung-daecher",15,true));
+    const all=s.results||[];
+    const own=hit.egid?all.filter(r=>String(props(r).gwr_egid)===hit.egid):[];
+    const roofs=own.length?own:all.slice(0,6);
     const sum=roofs.reduce((t,r)=>t+(+props(r).stromertrag||0),0);
     if(sum) out.solar=Math.round(sum/100)*100;
-    out.roofs=roofs.map(r=>{const g=r.geometry; const ring=g?.type==="Polygon"?g.coordinates[0]:g?.type==="MultiPolygon"?g.coordinates[0][0]:null;
-      return ring?ring.map(([x,y])=>[x-hit.e,y-hit.n]):null;}).filter(Boolean);
+    out.roofs=roofs.flatMap(r=>{const g=r.geometry;
+      const rings=g?.type==="Polygon"?[g.coordinates[0]]:g?.type==="MultiPolygon"?g.coordinates.map(p=>p[0]):[];
+      return rings.map(ring=>ring.map(([x,y])=>[x-hit.e,y-hit.n]));});
   }catch(e){}
   onStep(4);
   return out;
