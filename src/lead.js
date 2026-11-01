@@ -42,6 +42,8 @@ export async function handleLead(request, env) {
     egrid: str(d.egrid, 20),
     parzelle: str(d.parzelle, 30),
     gemeinde: str(d.gemeinde, 80),
+    kanton: /^[A-Z]{2}$/.test(d.kanton || "") ? d.kanton : null,
+    geoportalUrl: safeUrl(d.geoportalUrl),
     score: Number.isFinite(+d.score) ? Math.max(0, Math.min(100, Math.round(+d.score))) : null,
     level: str(d.level, 40),
     demo: !!d.demo,
@@ -126,6 +128,12 @@ function emailHtml(l) {
   </table>
   ${geoUrl ? `<p style="margin:16px 0 0"><a href="${e(geoUrl)}" style="color:#1E6A4E;font-size:14px">Auf map.geo.admin.ch öffnen</a></p>` : ""}
 </td></tr>
+${l.geoportalUrl || l.kanton ? `<tr><td style="padding:16px 24px;border-top:1px solid #D5DBD6">
+  <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#5B6862;margin-bottom:6px">Eigentümer prüfen${l.kanton ? " · Kanton " + e(l.kanton) : ""}</div>
+  <p style="margin:0 0 10px;font-size:14px;color:#18221E">Im Kantonsportal die Parzelle <b>${e(l.parzelle)}</b>${l.gemeinde ? " in <b>" + e(l.gemeinde) + "</b>" : ""} suchen (E-GRID ${e(l.egrid)}) und dort die Eigentümerauskunft öffnen.</p>
+  ${l.geoportalUrl ? `<p style="margin:0 0 10px"><a href="${e(l.geoportalUrl)}" style="display:inline-block;background:#1E6A4E;color:#ffffff;text-decoration:none;font-size:14px;font-weight:bold;padding:9px 14px;border-radius:6px">Kantonsportal öffnen</a></p>` : ""}
+  <p style="margin:0;font-size:12px;color:#5B6862">Nur für diese Anfrage verwenden. Die Online-Auskunft ist je nach Kanton limitiert, und Eigentümer können ihre Daten sperren lassen. Dann gibt das Grundbuchamt Auskunft.</p>
+</td></tr>` : ""}
 <tr><td style="padding:12px 24px;background:#F2F4F1;border-top:1px solid #D5DBD6;border-radius:0 0 10px 10px;font-size:12px;color:#5B6862">
   Eingegangen ${e(new Date(l.receivedAt).toLocaleString("de-CH", { timeZone: "Europe/Zurich" }))} · Antworten geht direkt an ${e(l.email)}
 </td></tr>
@@ -138,6 +146,14 @@ function originAllowed(origin, request, env) {
   if (origin === self) return true;
   const list = (env.ALLOWED_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
   return list.length === 0 || list.includes(origin);
+}
+
+// Nur https-Links auf Schweizer Kantonsportale (.ch) übernehmen
+function safeUrl(v) {
+  try {
+    const u = new URL(String(v || ""));
+    return u.protocol === "https:" && /\.ch$/.test(u.hostname) && u.href.length <= 400 ? u.href : null;
+  } catch { return null; }
 }
 
 function str(v, max) {
@@ -163,7 +179,8 @@ function summary(l) {
     `${l.role || "–"} · Interesse: ${l.goal || "–"}`,
     `Adresse: ${l.address || "–"} (E-GRID ${l.egrid || "–"})`,
     `Potenzial: ${l.score ?? "–"}/100 · ${l.level || ""}`,
-  ].join("\n");
+    l.geoportalUrl ? `Eigentümer prüfen (Kanton ${l.kanton || "–"}, Parzelle ${l.parzelle || "–"}): ${l.geoportalUrl}` : null,
+  ].filter(Boolean).join("\n");
 }
 
 function json(body, status = 200) {

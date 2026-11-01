@@ -241,6 +241,7 @@ async function analyseLive(hit, onStep){
     if(f){
       const a=props(f);
       out.egrid=a.egris_egrid||null; out.parzelle=a.number||null;
+      out.kanton=a.ak||null; out.geoportal=a.geoportal_url||null;
       const g=f.geometry; let ring=null;
       if(g?.type==="Polygon") ring=g.coordinates[0];
       if(g?.type==="MultiPolygon") ring=g.coordinates[0][0];
@@ -417,6 +418,7 @@ function renderLead(d, ev){
       name:f.fullname.value.trim(), email:f.email.value.trim(), phone:f.phone.value.trim(),
       role:f.role.value, goal:f.goal.value, website:f.website.value,
       address:d.label, egrid:d.egrid||null, parzelle:d.parzelle||null, gemeinde:d.gemeinde||null,
+      kanton:d.kanton||null, geoportalUrl:d.geoportal||null,
       score:ev.score, level:ev.level, demo:!!d.demo,
       facts:{parcelArea:d.parcelArea||null, year:d.year||d.yearApprox||null, klasse:d.klasse||null, floors:d.floors||null,
              zone:d.zone||null, oev:d.oev||null, heat:d.heat||null, solar:d.solar||null},
