@@ -566,7 +566,7 @@ async function onMapClick(e){
 /* ---------- 3D (CesiumJS mit swisstopo-Gelände, -Gebäuden und -Bäumen, nur bei Bedarf geladen) ---------- */
 const CESIUM="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.121.0/";
 const GEO3D="https://3d.geo.admin.ch/";
-let viewer=null, c3dEl=null, c3dOn=false, cesiumLoading=null, viewerInit=null;
+let viewer=null, c3dEl=null, c3dOn=false, cesiumLoading=null, viewerInit=null, fly3dFirst=true;
 function loadCesium(){
   if(window.Cesium) return Promise.resolve();
   if(cesiumLoading) return cesiumLoading;
@@ -637,7 +637,8 @@ async function show3D(d){
   try{ const [p]=await C.sampleTerrainMostDetailed(viewer.terrainProvider,[C.Cartographic.fromDegrees(cx,cy)]); if(p&&isFinite(p.height)) h=p.height; }catch(e){}
   const r=Math.max(15, Math.sqrt(d.parcelArea||400)*0.8);
   viewer.camera.flyToBoundingSphere(new C.BoundingSphere(C.Cartesian3.fromDegrees(cx,cy,h+6), r),
-    {offset:new C.HeadingPitchRange(C.Math.toRadians(-25), C.Math.toRadians(-32), Math.max(140, r*6)), duration:1.4});
+    {offset:new C.HeadingPitchRange(C.Math.toRadians(-25), C.Math.toRadians(-32), Math.max(140, r*6)), duration:fly3dFirst?0:1.4});
+  fly3dFirst=false;
   viewer.scene.requestRender();
 }
 
