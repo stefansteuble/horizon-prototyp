@@ -147,11 +147,12 @@ async function umgebung(p) {
   const a = `(around:${R},${lat},${lon})`;
   const q = `[out:json][timeout:25];(nwr${a}[amenity=school];nwr${a}[amenity=kindergarten];nwr${a}[shop=supermarket];` +
     `nwr${a}[shop=convenience];nwr${a}[amenity=doctors];nwr${a}[amenity=pharmacy];);out center tags 300;`;
-  const servers = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
+  // Zuerst die Schweizer Instanz der Swiss OpenStreetMap Association (schnell, nur Schweiz), dann internationale Server
+  const servers = [["https://overpass.osm.ch/api/interpreter", 12000], ["https://overpass-api.de/api/interpreter", 12000]];
   let data = null, lastErr = null;
-  for (const s of servers) {
+  for (const [s, ms] of servers) {
     try {
-      const r = await fetchWithTimeout(s, 28000, {
+      const r = await fetchWithTimeout(s, ms, {
         method: "POST", body: "data=" + encodeURIComponent(q),
         headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "horizon-prototyp (TTMS Schweiz AG)" },
       });
