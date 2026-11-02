@@ -105,6 +105,6 @@ Unverbindlicher Richtwert, keine Verkehrswertschätzung. Für den Echtbetrieb em
 
 ## Anpassen
 
-- Firmenname: `MUSTER ENTWICKLUNG AG` in `public/index.html`
+- Firmenname: `Prototyp von TTMS Schweiz AG` in `public/index.html`
 - Farben und Schriften: CSS-Variablen in `:root` (heller und dunkler Modus)
 - Die Beispieladressen in `DEMO` sind fiktiv und dienen als Startansicht sowie als Fallback, wenn geo.admin.ch nicht erreichbar ist.
