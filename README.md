@@ -8,7 +8,8 @@ public/
   embed.js        Einbettung per iframe mit automatischer Höhe
   _headers        Sicherheits-Header, erlaubte iframe-Domains
 src/
-  worker.js       Cloudflare Worker: liefert public/ aus, leitet /api/lead weiter
+  worker.js       Cloudflare Worker: liefert public/ aus, leitet /api/* weiter
+  extras.js       /api/oereb, /api/oev, /api/umgebung, /api/lwz mit Cloudflare-Cache
   lead.js         Lead prüfen und weiterleiten (Webhook und/oder KV)
 wrangler.toml
 ```
@@ -74,6 +75,11 @@ npm run dev                      # http://localhost:8787
 | Bauzone (harmonisiert) | `ch.are.bauzonen` (identify) |
 | ÖV-Güteklasse | `ch.are.gueteklassen_oev` (identify) |
 | Solarpotenzial, Dachumriss | `ch.bfe.solarenergie-eignung-daecher` (find nach `gwr_egid`) |
+| Zuständiger ÖREB-Dienst pro Parzelle | `ch.swisstopo-vd.stand-oerebkataster` (identify) |
+| Echte Zone, Baulinien, Altlasten, Lärm, Links zur Bauordnung | kantonaler ÖREB-Kataster, Auszug per E-GRID (über `/api/oereb`) |
+| Nächste Haltestelle, Reisezeit Zürich HB und nächstes Zentrum | [transport.opendata.ch](https://transport.opendata.ch) (über `/api/oev`) |
+| Schulen, Kindergärten, Einkauf, Arzt/Apotheke im Umkreis 1,5 km | OpenStreetMap, Overpass-Instanz der Swiss OpenStreetMap Association (über `/api/umgebung`) |
+| Leerwohnungsziffer Gemeinde, Kanton, Schweiz | BFS Leerwohnungszählung, Datensatz `DF_LWZ_1` auf stats.swiss (über `/api/lwz`) |
 
 Nutzungsbedingungen: [geo.admin.ch Terms of use](https://www.geo.admin.ch/de/nutzungsbedingungen). Die Quelle wird in der App genannt.
 
