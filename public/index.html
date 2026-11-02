@@ -203,9 +203,9 @@ footer a{color:inherit}
       </div>
       <ul class="sugg" id="sugg" role="listbox" hidden></ul>
       <div class="examples"><span>Beispiele:</span>
-        <button type="button" class="chip" data-demo="0">Musterweg 12, Zug</button>
-        <button type="button" class="chip" data-demo="1">Beispielstrasse 4, Uster</button>
-        <button type="button" class="chip" data-demo="2">Probeallee 31, Bern</button>
+        <button type="button" class="chip" data-q="Haldenstrasse 10 Oetwil an der Limmat" data-demo="0">Haldenstrasse 10, Oetwil an der Limmat</button>
+        <button type="button" class="chip" data-q="Hauptstrasse 24 Kradolf" data-demo="1">Hauptstrasse 24, Kradolf</button>
+        <button type="button" class="chip" data-q="Seefeldstrasse 49 5616 Meisterschwanden" data-demo="2">Seefeldstrasse 49, Meisterschwanden</button>
       </div>
     </form>
   </header>
@@ -1114,7 +1114,14 @@ document.getElementById("searchForm").addEventListener("submit",async e=>{
   if(list.length){ hits=list; pick(0); }
   else { document.getElementById("result").innerHTML=`<div class="leadbox"><h3>Adresse nicht gefunden</h3><p>${LIVE?"Bitte prüfen Sie Strasse, Hausnummer und Ort.":"Der Adressdienst ist im Moment nicht erreichbar. Bitte versuchen Sie es später nochmals."}</p></div>`; document.getElementById("leadWrap").innerHTML=""; }
 });
-document.querySelectorAll("[data-demo]").forEach(b=>b.addEventListener("click",()=>{ const d=DEMO[+b.dataset.demo]; inp.value=d.label; run(d); }));
+/* Beispiele: echte Adressen live abfragen; ohne Verbindung zu geo.admin.ch die fiktiven Beispieldaten zeigen */
+document.querySelectorAll("[data-q]").forEach(b=>b.addEventListener("click",async()=>{
+  showSugg([]);
+  if(LIVE){
+    try{ const h=(await searchLive(b.dataset.q))[0]; if(h){ inp.value=h.label; run(h); return; } }catch(e){}
+  }
+  const d=DEMO[+b.dataset.demo]; inp.value=d.label; run(d);
+}));
 document.addEventListener("click",e=>{ if(!e.target.closest(".search")) showSugg([]); });
 
 /* iframe: Höhe an die Webflow-Seite melden */
