@@ -810,7 +810,7 @@ function loadExtras(d){
   const done=(k,v)=>{ d.x[k]=v; if(current!==d) return; refreshExtras(d, k); };
   if(d.oerebWs&&d.egrid) api(`/api/oereb?egrid=${encodeURIComponent(d.egrid)}&ws=${encodeURIComponent(d.oerebWs)}`).then(v=>done("oereb",v)).catch(()=>done("oereb",null));
   else d.x.oereb=null;
-  api(`/api/oev?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`).then(v=>done("oev",v)).catch(()=>done("oev",null));
+  api(`/api/oev?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}&v=2`).then(v=>done("oev",v)).catch(()=>done("oev",null));
   const umg=()=>api(`/api/umgebung?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`);
   umg().catch(()=>new Promise(r=>setTimeout(r,2500)).then(umg)).then(v=>done("umg",v)).catch(()=>done("umg",null));
   if(d.bfsNr) api(`/api/lwz?bfs=${d.bfsNr}&kt=${encodeURIComponent(d.kanton||"")}`).then(v=>done("lwz",v)).catch(()=>done("lwz",null));
