@@ -13,7 +13,7 @@
   --accent:#1E6A4E; --accent-ink:#FFFFFF; --accent-soft:#E2EEE8;
   --bldg:#E7B9B6; --bldg-line:#B5605B;
   --good:#1E6A4E; --warn:#A8701A; --low:#7A8580;
-  --sim:#E0803F; --sim-soft:#FCEFE5; --sim-ink:#A4501A;
+  --sim:#E0803F; --sim-soft:#FCEFE5; --sim-ink:#A4501A; --warn-soft:#FBEFD9;
   --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
   --f-body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
@@ -22,11 +22,11 @@
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --paper:#111714; --sheet:#18201C; --ink:#E6ECE8; --muted:#97A39D; --line:#2C3832;
   --accent:#5BBF94; --accent-ink:#0D1A14; --accent-soft:#1D3229;
-  --bldg:#5A3533; --bldg-line:#D98C86; --good:#5BBF94; --warn:#E0A74A; --low:#8C9892; --sim:#E89254; --sim-soft:#3A2617; --sim-ink:#F2B286; color-scheme:dark}}
+  --bldg:#5A3533; --bldg-line:#D98C86; --good:#5BBF94; --warn:#E0A74A; --low:#8C9892; --sim:#E89254; --sim-soft:#3A2617; --sim-ink:#F2B286; --warn-soft:#3A2C12; color-scheme:dark}}
 :root[data-theme="dark"]{
   --paper:#111714; --sheet:#18201C; --ink:#E6ECE8; --muted:#97A39D; --line:#2C3832;
   --accent:#5BBF94; --accent-ink:#0D1A14; --accent-soft:#1D3229;
-  --bldg:#5A3533; --bldg-line:#D98C86; --good:#5BBF94; --warn:#E0A74A; --low:#8C9892; --sim:#E89254; --sim-soft:#3A2617; --sim-ink:#F2B286; color-scheme:dark}
+  --bldg:#5A3533; --bldg-line:#D98C86; --good:#5BBF94; --warn:#E0A74A; --low:#8C9892; --sim:#E89254; --sim-soft:#3A2617; --sim-ink:#F2B286; --warn-soft:#3A2C12; color-scheme:dark}
 
 *{box-sizing:border-box}
 html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -156,6 +156,24 @@ footer a{color:inherit}
 .val .sim-edit{color:var(--accent)}
 .val .sim-form{border-color:var(--accent);background:var(--accent-soft);grid-template-columns:1fr 1fr auto}
 @media (max-width:620px){ .sim-grid{grid-template-columns:1fr} .sim-form,.val .sim-form{grid-template-columns:1fr 1fr} }
+/* ÖREB und Lage */
+.xlist{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.xlist li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;font-size:14px}
+.xlist .k{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding-top:3px;min-width:116px}
+.xlist .v{min-width:0;overflow-wrap:anywhere}
+.xlist .v small{display:block;color:var(--muted);font-size:12.5px}
+.xlist .r{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;white-space:nowrap}
+.flag{display:inline-block;font-family:var(--f-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:1px}
+.flag.ok{background:var(--accent-soft);color:var(--good)}
+.flag.warn{background:var(--warn-soft);color:var(--warn)}
+.flag.info{border:1px solid var(--line);color:var(--muted)}
+.xload{font-size:13.5px;color:var(--muted);display:flex;gap:8px;align-items:center}
+.xload::before{content:"";width:12px;height:12px;border-radius:50%;border:2px solid var(--accent);border-top-color:transparent;animation:spin .8s linear infinite;flex:none}
+.xlinks{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px}
+.xlinks a{color:var(--accent)}
+.xgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.xgrid h4{margin:0 0 8px;font:600 13px var(--f-body)}
+@media (max-width:620px){ .xgrid{grid-template-columns:1fr} .xlist li{grid-template-columns:1fr auto} .xlist .k{grid-column:1/-1;min-width:0} }
 /* Karte */
 .mapband{position:relative;border-bottom:1px solid var(--line);background:var(--paper)}
 .map{height:360px;width:100%}
@@ -332,11 +350,17 @@ async function analyseLive(hit, onStep){
   // 3 Bauzone + ÖV-Güteklasse
   onStep(2);
   try{
-    const [z,o] = await Promise.all([
+    const [z,o,ok] = await Promise.all([
       getJSON(identifyUrl(hit.e,hit.n,"ch.are.bauzonen",0,false)),
-      getJSON(identifyUrl(hit.e,hit.n,"ch.are.gueteklassen_oev",0,false))
+      getJSON(identifyUrl(hit.e,hit.n,"ch.are.gueteklassen_oev",0,false)),
+      getJSON(identifyUrl(hit.e,hit.n,"ch.swisstopo-vd.stand-oerebkataster",0,false)).catch(()=>null)
     ]);
+    // Zuständiger kantonaler ÖREB-Dienst für diese Parzelle
+    const oa2=props((ok?.results||[])[0]);
+    if(oa2.oereb_webservice){ out.oerebWs=oa2.oereb_webservice; out.oerebPdf=oa2.oereb_extract_pdf||null; out.egrid=out.egrid||oa2.egris_egrid; }
+    out.bfsNr=+oa2.bfs_nr||null;
     const za=props((z.results||[])[0]); out.zone=za.ch_bez_d||null; out.zoneCode=+za.ch_code_hn||null; out.gemeinde=out.gemeinde||za.name||null;
+    out.bfsNr=out.bfsNr||+za.bfs_no||null;
     const oa=props((o.results||[])[0]); const k=String(oa.klasse_de||"").charAt(0); out.oev="ABCD".includes(k)&&k?k:null;
   }catch(e){}
   // 4 Solarpotenzial und Dachumriss (Sonnendach), alle Dachflächen des Gebäudes
@@ -381,8 +405,41 @@ function zoneRules(d){
 /* Eigene Werte (z.B. bekannte Ausnützungsziffer) gelten für alle Parzellen derselben Zone in derselben Gemeinde */
 const simOverride = {};
 const simKey = d => `${d.gemeinde||""}|${d.zoneCode||d.zone||""}`;
+/* Zonenname aus dem ÖREB-Kataster lesen: Geschosse, Ausnützungs- oder Baumassenziffer */
+const AZ_BY_G={1:[0.25,0.35],2:[0.40,0.60],3:[0.55,0.80],4:[0.80,1.10],5:[1.00,1.40],6:[1.20,1.80]};
+function parseZone(text){
+  const s=String(text||""), n=v=>Number(String(v).replace(",","."));
+  const z={text:s, geschosse:null, az:null, bmz:null};
+  let m;
+  if((m=s.match(/Baumassenziffer\s*([\d.,]+)/i))) z.bmz=n(m[1]);
+  if((m=s.match(/Ausn[üu]tzungsziffer\s*([\d.,]+)/i))||(m=s.match(/\bAZ\s*([\d.,]+)/))) z.az=n(m[1]);
+  if((m=s.match(/(\d)\s*-?\s*geschossig/i))||(m=s.match(/(\d)\s*(?:Voll)?geschoss/i))) z.geschosse=+m[1];
+  if(!z.geschosse&&(m=s.match(/zone\s+(\d)(?![.,\d])/i))) z.geschosse=+m[1];
+  if(!z.geschosse&&(m=s.match(/[(\[]\s*[A-ZÄÖÜ]{1,3}\s?(\d)(?![.,\d])/))) z.geschosse=+m[1];
+  if(!z.geschosse&&(m=s.match(/\b(?:W|WG|WA|WM|WZ|Z|ZZ|K|KZ|M|MI|D)\s?(\d)(?![.,\d])/))) z.geschosse=+m[1];
+  if(!(z.bmz>0&&z.bmz<12)) z.bmz=null;
+  if(!(z.az>0&&z.az<6)) z.az=null;
+  if(!(z.geschosse>=1&&z.geschosse<=10)) z.geschosse=null;
+  return z;
+}
+const NON_BUILD=/landwirtschaft|wald|reserve|freihalte|gewässer|naturschutz|grünzone|abbau|deponie/i;
+function oerebRules(d){
+  const z=d.oerebZone; if(!z) return null;
+  if(NON_BUILD.test(z.text)) return {name:z.text, nonBuilding:true};
+  const base=zoneRules(d)||ZONE_RULES.wohn;
+  const r={name:z.text, abstand:base.abstand, geschosse:base.geschosse, az:base.az.slice(), fromOereb:true, derived:[]};
+  if(z.geschosse){ r.geschosse=z.geschosse; r.abstand=z.geschosse<=2?4:z.geschosse===3?5:6; r.derived.push(`${z.geschosse} Geschosse`);
+    if(!z.az&&!z.bmz){ r.az=AZ_BY_G[Math.min(z.geschosse,6)].slice(); r.derived.push(`AZ geschätzt ${r.az.map(num2).join("–")}`); } }
+  if(z.az){ r.az=[z.az,z.az]; r.derived.push(`Ausnützungsziffer ${num2(z.az)}`); }
+  if(z.bmz){ r.az=[z.bmz/3.6, z.bmz/3.0];
+    if(!z.geschosse){ r.geschosse=Math.max(2,Math.min(6,Math.round(z.bmz/0.8))); r.abstand=r.geschosse<=2?4:r.geschosse===3?5:6; }
+    r.derived.push(`Baumassenziffer ${num2(z.bmz)} (≈ AZ ${r.az.map(num2).join("–")})`); }
+  return r;
+}
 function effectiveRules(d){
-  const base=zoneRules(d), o=simOverride[simKey(d)];
+  const or=oerebRules(d);
+  if(or&&or.nonBuilding) return null;
+  const base=or||zoneRules(d), o=simOverride[simKey(d)];
   if(!o) return base;
   const r=Object.assign({}, base||{name:"diese Zone", abstand:5, geschosse:3, az:[0.6,0.6]});
   if(o.abstand!=null) r.abstand=o.abstand;
@@ -513,6 +570,9 @@ function valText(v){ if(!v||!v.land) return null; if(v.land[1]<=0) return "kein 
 /* ---------- Bewertung (Indikatoren, kein Gutachten) ---------- */
 function evaluate(d, sim){
   let s=0; const sig=[];
+  const lw=d.x?.lwz?.gemeinde?.at?.(-1);
+  if(lw&&lw.rate<1){ s+=5; sig.push(["plus",`Leerwohnungsziffer ${pct2(lw.rate)}: Wohnungen sind in ${d.gemeinde||"der Gemeinde"} gefragt.`]); }
+  if(d.x?.oereb?.items?.some(i=>/BelasteteStandorte/i.test(i.theme||""))) sig.unshift(["neut","Im Kataster der belasteten Standorte eingetragen. Altlasten vor einer Entwicklung abklären."]);
   if(sim&&sim.reserve){ const mid=(sim.reserve[0]+sim.reserve[1])/2;
     if(mid>=40){ s+=15; sig.push(["plus",`Gemäss Simulation sind ca. ${simText(sim)} der zulässigen Geschossfläche noch ungenutzt.`]); }
     else if(mid>=20){ s+=8; sig.push(["plus",`Gemäss Simulation sind ca. ${simText(sim)} der zulässigen Geschossfläche noch ungenutzt.`]); } }
@@ -613,6 +673,7 @@ function render(d){
     </div>
     ${simBlock(sim, d)}
     ${valBlock(d)}
+    ${useMap?`<section class="sim" id="oerebSection">${oerebHtml(d)}</section><section class="sim" id="lageSection">${lageHtml(d)}</section>`:""}
     <dl class="facts" style="margin:0">${facts.map(([k,v,s])=>`<div class="fact"><dt>${k}</dt><dd>${v}${s?`<small>${s}</small>`:""}</dd></div>`).join("")}</dl>
     <div class="note">Die zulässige Ausnützung legt Ihre Gemeinde in der Bau- und Zonenordnung fest. Diese Werte sind in den Bundesdaten nicht enthalten. Für eine verbindliche Einschätzung prüfen wir das Grundstück persönlich.</div>
   </article>`;
@@ -633,6 +694,8 @@ function render(d){
   }
   wireSim(d);
   wireVal(d);
+  current=d;
+  if(useMap && !d.extrasStarted) loadExtras(d);
   renderLead(d, ev);
 }
 
@@ -641,12 +704,16 @@ function signalsHtml(ev){ return ev.signals.map(([t,x])=>`<li><span class="pill 
 
 function simBodyHtml(sim, d){
   const rules=effectiveRules(d);
+  const orr=oerebRules(d);
+  if(!sim && orr && orr.nonBuilding){
+    return `<p class="sim-note">Gemäss ÖREB-Kataster liegt die Parzelle in «${esc(orr.name)}». Das ist keine Bauzone, deshalb gibt es keine Bebauungssimulation.</p>`;
+  }
   if(!sim){
     return `<p class="sim-note">Für diese Zone gibt es keine Standardwerte. Tragen Sie Grenzabstand, Geschosse und Ausnützungsziffer ein, um die Reserve zu berechnen.</p>`;
   }
   const r=sim.rules, az=r.az[0]===r.az[1]?num2(r.az[0]):r.az.map(num2).join("–");
-  const what = r.custom ? "Ihre Werte" : `Annahmen für ${r.name}`;
-  const note=`${what}: Grenzabstand ${String(r.abstand).replace(".",",")} m, max. ${r.geschosse} Geschosse, Ausnützungsziffer ${az}.${r.custom?"":" Die Bau- und Zonenordnung Ihrer Gemeinde kann davon abweichen."}`;
+  const what = r.custom ? "Ihre Werte" : r.fromOereb ? `Zone gemäss ÖREB-Kataster «${esc(r.name)}»${r.derived.length?` (${r.derived.join(", ")})`:""}. Gerechnet mit` : `Annahmen für ${r.name}`;
+  const note=`${what}: Grenzabstand ${String(r.abstand).replace(".",",")} m, max. ${r.geschosse} Geschosse, Ausnützungsziffer ${az}.${r.custom?"":(r.fromOereb?" Abstände und Details der Bauordnung sind geschätzt.":" Die Bau- und Zonenordnung Ihrer Gemeinde kann davon abweichen.")}`;
   if(sim.tooSmall) return `<p class="sim-note">Nach Abzug der Grenzabstände bleibt auf dieser Parzelle keine sinnvolle bebaubare Fläche. ${note}</p>`;
   const res=simText(sim), full=sim.reserve&&sim.reserve[1]<1;
   return `<dl class="sim-grid" style="margin:0">
@@ -663,7 +730,7 @@ function simBlock(sim, d){
   const open = !sim;   // ohne Standardwerte gleich das Eingabefeld zeigen
   const azVal = o.az ? (o.az[0]===o.az[1]?num2(o.az[0]):o.az.map(num2).join("–")) : "";
   return `<section class="sim" id="simSection">
-    <div class="sim-head"><div class="eyebrow">Bebauungssimulation</div><span class="sim-tag" id="simTag">${r&&r.custom?"Mit Ihren Werten":"Schätzung mit Standardwerten"}</span></div>
+    <div class="sim-head"><div class="eyebrow">Bebauungssimulation</div><span class="sim-tag" id="simTag">${simTagText(d)}</span></div>
     <div id="simBody">${simBodyHtml(sim, d)}</div>
     <button type="button" class="sim-edit" id="simEdit" aria-expanded="${open}" ${open?"hidden":""}>Werte anpassen</button>
     <form class="sim-form" id="simForm" ${open?"":"hidden"} novalidate>
@@ -726,6 +793,115 @@ function updateVal(d){
   const o=valOverride[valKey(d)]||{}; document.getElementById("valTag").textContent=o.preis||o.kosten?"Mit Ihren Werten":"Richtwert";
   fitFrame();
 }
+/* ---------- Zusatzdaten: ÖREB-Kataster, ÖV, Umgebung, Leerwohnungsziffer (über den Worker) ---------- */
+let current=null;
+function simTagText(d){ const r=effectiveRules(d); return r&&r.custom ? "Mit Ihren Werten" : r&&r.fromOereb ? "Zone aus ÖREB-Kataster" : "Schätzung mit Standardwerten"; }
+async function api(path){ const r=await fetch(path); if(!r.ok) throw new Error(r.status); return r.json(); }
+function loadExtras(d){
+  d.extrasStarted=true; d.x={};
+  const [lon,lat]=lv95ToWgs(d.e,d.n);
+  const done=(k,v)=>{ d.x[k]=v; if(current!==d) return; refreshExtras(d, k); };
+  if(d.oerebWs&&d.egrid) api(`/api/oereb?egrid=${encodeURIComponent(d.egrid)}&ws=${encodeURIComponent(d.oerebWs)}`).then(v=>done("oereb",v)).catch(()=>done("oereb",null));
+  else d.x.oereb=null;
+  api(`/api/oev?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`).then(v=>done("oev",v)).catch(()=>done("oev",null));
+  api(`/api/umgebung?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`).then(v=>done("umg",v)).catch(()=>done("umg",null));
+  if(d.bfsNr) api(`/api/lwz?bfs=${d.bfsNr}&kt=${encodeURIComponent(d.kanton||"")}`).then(v=>done("lwz",v)).catch(()=>done("lwz",null));
+  else d.x.lwz=null;
+}
+function refreshExtras(d, k){
+  if(k==="oereb"){
+    d.oerebZone=pickZone(d.x.oereb);
+    // Simulation, Landwert und Score mit der echten Zone neu rechnen
+    updateSim(d);
+    document.getElementById("simSection")?.querySelector("#simAbstand")?.setAttribute("placeholder", String(effectiveRules(d)?.abstand??"").replace(".",","));
+    const r=effectiveRules(d), ge=document.getElementById("simGeschosse"), azf=document.getElementById("simAz");
+    if(r&&ge) ge.placeholder=r.geschosse; if(r&&azf) azf.placeholder=r.az[0]===r.az[1]?num2(r.az[0]):r.az.map(num2).join("–");
+    const el=document.getElementById("oerebSection"); if(el) el.innerHTML=oerebHtml(d);
+  } else {
+    if(k==="lwz") updateSim(d);
+    const el=document.getElementById("lageSection"); if(el) el.innerHTML=lageHtml(d);
+  }
+  fitFrame();
+}
+function pickZone(o){
+  if(!o||!o.items) return null;
+  const cand=o.items.filter(i=>/Nutzungsplanung/i.test(i.theme||"")&&/zone/i.test(i.text||"")&&!/gefahren|schutz|planungszone|lärm|überlager/i.test(i.text||""));
+  cand.sort((a,b)=>(/grundnutzung/i.test(b.sub||"")-/grundnutzung/i.test(a.sub||""))||((b.pct||0)-(a.pct||0)));
+  return cand[0]?parseZone(cand[0].text):null;
+}
+const pctTxt=p=>p==null?"":p>=99.5?"ganze Parzelle":`${String(Math.round(p*10)/10).replace(".",",")} %`;
+function oerebHtml(d){
+  const head=`<div class="sim-head"><div class="eyebrow">Bau- und Zonenrecht (ÖREB-Kataster)</div><span class="sim-tag" style="color:var(--accent);border-color:var(--accent)">Amtlich</span></div>`;
+  if(!d.x||!("oereb" in d.x)) return head+`<div class="xload">Auszug aus dem ÖREB-Kataster wird geladen …</div>`;
+  const o=d.x.oereb;
+  if(!o) return head+`<p class="sim-note">Der ÖREB-Kataster ist für diese Parzelle gerade nicht abrufbar.${d.oerebPdf?` <a href="${esc(d.oerebPdf)}" target="_blank" rel="noopener">Offiziellen Auszug als PDF öffnen</a>.`:""}</p>`;
+  const groups=[], seenDocs=[];
+  const add=(k,v,r,flag)=>groups.push(`<li><span class="k">${k}</span><span class="v">${v}${flag||""}</span><span class="r">${r||""}</span></li>`);
+  const by=re=>o.items.filter(i=>re.test(i.theme||""));
+  by(/Nutzungsplanung/i).forEach((i,ix)=>{
+    const warn=/gefahren|planungszone/i.test(i.text||"");
+    add(ix===0?"Nutzungsplanung":"", esc(i.text), pctTxt(i.pct), warn?'<span class="flag warn">Beachten</span>':"");
+    i.docs.forEach(doc=>{ if(!seenDocs.some(x=>x.url===doc.url)) seenDocs.push(doc); });
+  });
+  by(/Baulinie/i).forEach((i,ix)=>add(ix===0?"Baulinien":"", esc(i.text), i.length?`${Math.round(i.length)} m`:pctTxt(i.pct), '<span class="flag info">Abstand</span>'));
+  by(/Laerm|Lärm/i).forEach(i=>add("Lärm", esc(i.text), ""));
+  const alt=by(/BelasteteStandorte/i);
+  if(alt.length) alt.forEach((i,ix)=>add(ix===0?"Altlasten":"", esc(i.text||i.themeText), pctTxt(i.pct), '<span class="flag warn">Abklären</span>'));
+  else if(o.notConcerned.some(c=>/BelasteteStandorte/i.test(c))) add("Altlasten", "Kein Eintrag im Kataster der belasteten Standorte", "", '<span class="flag ok">Gut</span>');
+  by(/Grundwasser/i).forEach((i,ix)=>add(ix===0?"Grundwasser":"", esc(i.text||i.themeText), pctTxt(i.pct), '<span class="flag info">Auflagen</span>'));
+  by(/Wald/i).forEach((i,ix)=>add(ix===0?"Wald":"", esc(i.text||i.themeText), pctTxt(i.pct), '<span class="flag warn">Abstand</span>'));
+  by(/Gewaesser|Gewässer/i).forEach((i,ix)=>add(ix===0?"Gewässer":"", esc(i.text||i.themeText), pctTxt(i.pct), '<span class="flag warn">Abstand</span>'));
+  const known=/Nutzungsplanung|Baulinie|Laerm|Lärm|BelasteteStandorte|Grundwasser|Wald|Gewaesser|Gewässer/i;
+  o.items.filter(i=>!known.test(i.theme||"")).forEach(i=>add(esc(i.themeText||"Weitere"), esc(i.text||""), pctTxt(i.pct)));
+  const links=[];
+  if(d.oerebPdf) links.push(`<a href="${esc(d.oerebPdf)}" target="_blank" rel="noopener">Offizieller ÖREB-Auszug (PDF)</a>`);
+  seenDocs.slice(0,3).forEach(doc=>links.push(`<a href="${esc(doc.url)}" target="_blank" rel="noopener">${esc(doc.title).slice(0,70)}</a>`));
+  return head+`<ul class="xlist">${groups.join("")||'<li><span class="k">Hinweis</span><span class="v">Keine Eigentumsbeschränkungen eingetragen.</span><span class="r"></span></li>'}</ul>
+    ${links.length?`<div class="xlinks">${links.join("")}</div>`:""}
+    <p class="sim-note">Quelle: ÖREB-Kataster ${esc(d.kanton||"")}. Massgebend ist der offizielle Auszug.</p>`;
+}
+const lwzWord=r=>r<0.5?"sehr knapper Wohnungsmarkt":r<1?"knapper Wohnungsmarkt":r<2?"ausgeglichener Markt":"viele leere Wohnungen";
+const pct2=v=>v==null?"–":`${String(v.toFixed(2)).replace(".",",")} %`;
+function lageHtml(d){
+  const head=`<div class="sim-head"><div class="eyebrow">Lage</div><span class="sim-tag" style="color:var(--accent);border-color:var(--accent)">Live-Daten</span></div>`;
+  const x=d.x||{}, load=t=>`<div class="xload">${t}</div>`;
+  // ÖV
+  let oevH;
+  if(!("oev" in x)) oevH=load("Verbindungen werden gesucht …");
+  else if(!x.oev||!x.oev.stop) oevH=`<p class="sim-note">Keine ÖV-Daten verfügbar.</p>`;
+  else{
+    const o=x.oev, st=o.stop;
+    oevH=`<ul class="xlist">
+      <li><span class="k">Haltestelle</span><span class="v">${esc(st.name)}<small>${fmt(st.distance)} m, ca. ${o.walkMin} Min. zu Fuss${st.icon?` · ${st.icon==="bus"?"Bus":st.icon==="train"?"Bahn":st.icon==="tram"?"Tram":esc(st.icon)}`:""}</small></span><span class="r"></span></li>
+      ${o.targets.map(t=>`<li><span class="k">${esc(t.name)}</span><span class="v">${t.min!=null?`<b>${t.min} Min.</b>${t.transfers!=null?`<small>${t.transfers===0?"direkt":t.transfers===1?"1 Umstieg":t.transfers+" Umstiege"}, ab Haltestelle</small>`:""}`:"keine Verbindung gefunden"}</span><span class="r"></span></li>`).join("")}
+    </ul><p class="sim-note">Schnellste Verbindung ${esc(o.when)}. Quelle: transport.opendata.ch</p>`;
+  }
+  // Umgebung
+  let umgH;
+  if(!("umg" in x)) umgH=load("Umgebung wird geladen …");
+  else if(!x.umg) umgH=`<p class="sim-note">Die Umgebungsdaten sind gerade nicht abrufbar.</p>`;
+  else{
+    const c=x.umg.categories;
+    umgH=`<ul class="xlist">${Object.values(c).map(v=>`<li><span class="k">${esc(v.label)}</span><span class="v">${v.nearest?`${fmt(v.nearest.distance)} m${v.nearest.name?`<small>${esc(v.nearest.name)}</small>`:""}`:"keine im Umkreis"}</span><span class="r">${v.count?`${v.count} im Umkreis`:""}</span></li>`).join("")}</ul>
+      <p class="sim-note">Luftlinie, Umkreis ${fmt(x.umg.radius)} m. Quelle: OpenStreetMap-Mitwirkende</p>`;
+  }
+  // Leerwohnungsziffer
+  let lwzH;
+  if(!("lwz" in x)) lwzH=load("Leerwohnungsziffer wird geladen …");
+  else if(!x.lwz||!x.lwz.gemeinde.length) lwzH=`<p class="sim-note">Für diese Gemeinde ist keine Leerwohnungsziffer verfügbar.</p>`;
+  else{
+    const g=x.lwz.gemeinde, last=g[g.length-1], prev=g[g.length-2];
+    const kt=x.lwz.kanton.at?.(-1), ch=x.lwz.schweiz.at?.(-1);
+    const trend=prev?(last.rate>prev.rate+0.05?"steigend":last.rate<prev.rate-0.05?"sinkend":"stabil"):"";
+    lwzH=`<ul class="xlist">
+      <li><span class="k">${esc(d.gemeinde||"Gemeinde")}</span><span class="v"><b>${pct2(last.rate)}</b><small>${lwzWord(last.rate)}${trend?`, ${trend} (Vorjahr ${pct2(prev.rate)})`:""}</small></span><span class="r">${last.year}</span></li>
+      ${kt?`<li><span class="k">Kanton ${esc(d.kanton)}</span><span class="v">${pct2(kt.rate)}</span><span class="r">${kt.year}</span></li>`:""}
+      ${ch?`<li><span class="k">Schweiz</span><span class="v">${pct2(ch.rate)}</span><span class="r">${ch.year}</span></li>`:""}
+    </ul><p class="sim-note">Anteil leer stehender Wohnungen am Bestand, Stichtag 1. Juni. Quelle: BFS, Leerwohnungszählung</p>`;
+  }
+  return head+`<div class="xgrid"><div><h4>Öffentlicher Verkehr</h4>${oevH}</div><div><h4>Umgebung</h4>${umgH}</div></div><div><h4 style="margin:4px 0 8px;font:600 13px var(--f-body)">Leerwohnungsziffer</h4>${lwzH}</div>`;
+}
+
 function wireSim(d){
   const form=document.getElementById("simForm"); if(!form) return;
   const edit=document.getElementById("simEdit");
@@ -750,7 +926,7 @@ function updateSim(d){
   const sim=simulate(d); d.sim=sim;
   const ev=evaluate(d, sim);
   document.getElementById("simBody").innerHTML=simBodyHtml(sim, d);
-  const r=effectiveRules(d); document.getElementById("simTag").textContent = r&&r.custom ? "Mit Ihren Werten" : "Schätzung mit Standardwerten";
+  document.getElementById("simTag").textContent = simTagText(d);
   document.getElementById("scoreMain").innerHTML=scoreMainHtml(ev);
   document.getElementById("scoreSignals").innerHTML=signalsHtml(ev);
   const fine=document.getElementById("leadScore"); if(fine) fine.textContent=ev.score;
@@ -800,6 +976,10 @@ function renderLead(d, ev){
              reserve:simText(d.sim), gfMax:d.sim&&d.sim.gfHi?rangeFmt(d.sim.gfLo,d.sim.gfHi," m²"):null,
              units:d.sim&&d.sim.units?rangeFmt(d.sim.units[0],d.sim.units[1]):null,
              landValue:valText(valuation(d,d.sim)),
+             oerebZone:d.oerebZone?d.oerebZone.text:null,
+             altlasten:d.x?.oereb ? (d.x.oereb.items.some(i=>/BelasteteStandorte/i.test(i.theme||""))?"Eintrag vorhanden":d.x.oereb.notConcerned.some(c=>/BelasteteStandorte/i.test(c))?"kein Eintrag":null) : null,
+             lwz:d.x?.lwz?.gemeinde?.length?`${pct2(d.x.lwz.gemeinde.at(-1).rate)} (${d.x.lwz.gemeinde.at(-1).year})`:null,
+             oevZuerich:d.x?.oev?.targets?.length?d.x.oev.targets.map(t=>`${t.name} ${t.min!=null?t.min+" Min.":"–"}`).join(", "):null,
              simRules:d.sim?`${d.sim.rules.custom?"Werte angepasst":"Standardwerte"}: Abstand ${d.sim.rules.abstand} m, ${d.sim.rules.geschosse} Geschosse, AZ ${d.sim.rules.az.map(num2).join("–")}`:null},
       page:document.referrer||location.href
     };

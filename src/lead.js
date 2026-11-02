@@ -121,7 +121,10 @@ function emailHtml(l) {
     ${row("Parzelle", `${e(l.parzelle)}${l.gemeinde ? ", " + e(l.gemeinde) : ""}${f.parcelArea ? ` · ${e(num(f.parcelArea))} m²` : ""}`)}
     ${row("E-GRID", e(l.egrid))}
     ${row("Gebäude", `${e(f.klasse)}${f.year ? `, Baujahr ${e(f.year)}` : ""}${f.floors ? `, ${e(f.floors)} Geschosse` : ""}`)}
-    ${row("Bauzone", e(f.zone))}
+    ${row("Bauzone", f.oerebZone ? `${e(f.oerebZone)} <span style="color:#5B6862">(ÖREB)</span>` : e(f.zone))}
+    ${f.altlasten ? row("Altlasten", f.altlasten === "Eintrag vorhanden" ? `<b style="color:#8A5A0E">${e(f.altlasten)}</b>` : e(f.altlasten)) : ""}
+    ${f.lwz ? row("Leerwohnungsziffer", e(f.lwz)) : ""}
+    ${f.oevZuerich ? row("ÖV", e(f.oevZuerich)) : ""}
     ${row("ÖV-Güteklasse", e(f.oev))}
     ${row("Heizung", e(f.heat))}
     ${row("Solarstrom Dach", f.solar ? `${e(num(f.solar))} kWh/Jahr` : "–")}
@@ -168,7 +171,7 @@ function str(v, max) {
 function sanitizeFacts(f) {
   if (!f || typeof f !== "object") return {};
   const out = {};
-  for (const k of ["parcelArea", "year", "klasse", "floors", "zone", "oev", "heat", "solar", "reserve", "gfMax", "units", "simRules", "landValue"]) {
+  for (const k of ["parcelArea", "year", "klasse", "floors", "zone", "oev", "heat", "solar", "reserve", "gfMax", "units", "simRules", "landValue", "oerebZone", "altlasten", "lwz", "oevZuerich"]) {
     const v = f[k];
     out[k] = typeof v === "number" ? v : str(v, 80);
   }
