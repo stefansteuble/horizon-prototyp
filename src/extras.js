@@ -103,7 +103,9 @@ async function oev(p) {
   const loc = await (await fetchWithTimeout(`${T}/locations?x=${lat}&y=${lon}&type=station`, 10000)).json();
   const stops = (loc.stations || []).filter(s => s.id);
   if (!stops.length) return { ttl: 7 * DAY, body: { stop: null, targets: [] } };
-  const stop = stops[0];
+  // Bahn, Tram und Bus vor Schiff und Seilbahn, sofern höchstens 600 m weiter entfernt
+  const land = stops.filter(s => ["train", "tram", "bus"].includes(s.icon));
+  const stop = land.length && (land[0].distance || 0) - (stops[0].distance || 0) <= 600 ? land[0] : stops[0];
   const dist = (a, b) => haversine(lat, lon, a, b);
   const nearest = CENTERS.filter(c => c[0] !== "Zürich HB").map(c => [c, dist(c[1], c[2])]).sort((a, b) => a[1] - b[1])[0];
   const targets = [CENTERS[0]];

@@ -163,7 +163,7 @@ footer a{color:inherit}
 .xlist .v{min-width:0;overflow-wrap:anywhere}
 .xlist .v small{display:block;color:var(--muted);font-size:12.5px}
 .xlist .r{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;white-space:nowrap}
-.flag{display:inline-block;font-family:var(--f-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:1px}
+.flag{display:inline-block;margin-left:8px !important;font-family:var(--f-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:1px}
 .flag.ok{background:var(--accent-soft);color:var(--good)}
 .flag.warn{background:var(--warn-soft);color:var(--warn)}
 .flag.info{border:1px solid var(--line);color:var(--muted)}
@@ -568,40 +568,47 @@ function chfRange(a,b){ return a>=1e6||b>=1e6 ? `${chf(a).replace(" Mio.","")}�
 function valText(v){ if(!v||!v.land) return null; if(v.land[1]<=0) return "kein positiver Landwert"; return "CHF "+chfRange(Math.max(0,v.land[0]),v.land[1]); }
 
 /* ---------- Bewertung (Indikatoren, kein Gutachten) ---------- */
+/* Score 0–100: die Ausbau-Reserve aus der Simulation zählt am meisten (max. 40 Punkte),
+   dazu Gebäudealter, Parzellengrösse, Lage, Heizung und Wohnungsmarkt */
 function evaluate(d, sim){
   let s=0; const sig=[];
-  const lw=d.x?.lwz?.gemeinde?.at?.(-1);
-  if(lw&&lw.rate<1){ s+=5; sig.push(["plus",`Leerwohnungsziffer ${pct2(lw.rate)}: Wohnungen sind in ${d.gemeinde||"der Gemeinde"} gefragt.`]); }
-  if(d.x?.oereb?.items?.some(i=>/BelasteteStandorte/i.test(i.theme||""))) sig.unshift(["neut","Im Kataster der belasteten Standorte eingetragen. Altlasten vor einer Entwicklung abklären."]);
-  if(sim&&sim.reserve){ const mid=(sim.reserve[0]+sim.reserve[1])/2;
-    if(mid>=40){ s+=15; sig.push(["plus",`Gemäss Simulation sind ca. ${simText(sim)} der zulässigen Geschossfläche noch ungenutzt.`]); }
-    else if(mid>=20){ s+=8; sig.push(["plus",`Gemäss Simulation sind ca. ${simText(sim)} der zulässigen Geschossfläche noch ungenutzt.`]); } }
-  const now=new Date().getFullYear();
-  const yr=d.year||d.yearApprox;
+  const res = sim&&sim.reserve ? (sim.reserve[0]+sim.reserve[1])/2 : null;
+  if(d.empty){ s+=40; sig.push(["plus","Auf dieser Parzelle ist kein Gebäude erfasst. Unbebautes Land in der Bauzone hat das grösste Entwicklungspotenzial."]); }
+  else if(res!=null){
+    s+=Math.min(40, Math.round(res*0.45));
+    if(res>=20) sig.push(["plus",`Gemäss Simulation sind ca. ${simText(sim)} der zulässigen Geschossfläche noch ungenutzt.`]);
+    else sig.push(["neut",`Gemäss Simulation sind nur ca. ${simText(sim)} der zulässigen Geschossfläche ungenutzt.`]);
+  } else {
+    // ohne Simulation: grober Indikator aus Geschossfläche und Parzelle
+    const gf = d.footprint&&d.floors ? d.footprint*d.floors : null;
+    if(gf&&d.parcelArea){ const r=gf/d.parcelArea; d.ratio=r;
+      if(r<0.4){s+=25; sig.push(["plus","Die bestehende Geschossfläche nutzt die Parzelle nur wenig. Hier ist oft deutlich mehr Wohnfläche möglich."]);}
+      else if(r<0.7){s+=15; sig.push(["plus","Die Parzelle ist eher locker bebaut."]);}
+      else if(r<1.0){s+=5; sig.push(["neut","Die Parzelle ist mittel dicht bebaut."]);}
+      else sig.push(["neut","Die Parzelle ist bereits dicht bebaut."]); }
+  }
+  const gf2 = d.footprint&&d.floors ? d.footprint*d.floors : null; if(gf2&&d.parcelArea) d.ratio=gf2/d.parcelArea;
+  const now=new Date().getFullYear(), yr=d.year||d.yearApprox;
   if(yr){ const age=now-yr;
-    if(age>=50){s+=30; sig.push(["plus",`Gebäude ist ${age} Jahre alt. Ein Ersatzneubau kann wirtschaftlicher sein als eine Gesamtsanierung.`]);}
-    else if(age>=35){s+=20; sig.push(["plus",`Gebäude ist ${age} Jahre alt, eine grössere Erneuerung steht in den nächsten Jahren an.`]);}
-    else if(age>=20){s+=10; sig.push(["neut",`Gebäude ist ${age} Jahre alt.`]);}
+    if(age>=50){s+=15; sig.push(["plus",`Gebäude ist ${age} Jahre alt. Ein Ersatzneubau kann wirtschaftlicher sein als eine Gesamtsanierung.`]);}
+    else if(age>=35){s+=10; sig.push(["plus",`Gebäude ist ${age} Jahre alt, eine grössere Erneuerung steht in den nächsten Jahren an.`]);}
+    else if(age>=20){s+=5; sig.push(["neut",`Gebäude ist ${age} Jahre alt.`]);}
     else sig.push(["neut",`Gebäude ist erst ${age} Jahre alt.`]); }
-  if(d.empty){ s+=50; sig.push(["plus","Auf dieser Parzelle ist kein Gebäude erfasst. Unbebautes Land in der Bauzone hat das grösste Entwicklungspotenzial."]); }
-  const gf = d.footprint&&d.floors ? d.footprint*d.floors : null;
-  if(gf&&d.parcelArea){ const r=gf/d.parcelArea; d.ratio=r;
-    if(r<0.4){s+=30; sig.push(["plus","Die bestehende Geschossfläche nutzt die Parzelle nur wenig. Hier ist oft deutlich mehr Wohnfläche möglich."]);}
-    else if(r<0.7){s+=20; sig.push(["plus","Die Parzelle ist eher locker bebaut."]);}
-    else if(r<1.0){s+=10; sig.push(["neut","Die Parzelle ist mittel dicht bebaut."]);}
-    else sig.push(["neut","Die Parzelle ist bereits dicht bebaut."]); }
   if(d.parcelArea>=800){s+=10; sig.push(["plus",`Mit ${fmt(d.parcelArea)} m² ist die Parzelle gross genug für ein Mehrfamilienhaus.`]);}
   else if(d.parcelArea>=500) s+=5;
-  if(d.zone){ if(/wohn|misch|kern|zentrum/i.test(d.zone)) s+=10; } else s+=5;
-  if(d.oev){ s+= {A:10,B:10,C:6,D:3}[d.oev]||0;
+  if(d.zone&&/wohn|misch|kern|zentrum/i.test(d.zone)) s+=5;
+  if(d.oev){ s+= {A:8,B:8,C:4,D:2}[d.oev]||0;
     if("AB".includes(d.oev)) sig.push(["plus",`ÖV-Güteklasse ${d.oev}: gute Anbindung erhöht die Nachfrage nach Wohnungen.`]); }
-  if(d.fossil){ s+=10; sig.push(["plus",`Heizung mit ${d.heat}: Ein Heizungsersatz ist ein guter Zeitpunkt, um über das ganze Gebäude nachzudenken.`]); }
+  if(d.fossil){ s+=5; sig.push(["plus",`Heizung mit ${d.heat}: Ein Heizungsersatz ist ein guter Zeitpunkt, um über das ganze Gebäude nachzudenken.`]); }
+  const lw=d.x?.lwz?.gemeinde?.at?.(-1);
+  if(lw&&lw.rate<1){ s+=7; sig.push(["plus",`Leerwohnungsziffer ${pct2(lw.rate)}: Wohnungen sind in ${d.gemeinde||"der Gemeinde"} gefragt.`]); }
+  if(d.x?.oereb?.items?.some(i=>/BelasteteStandorte/i.test(i.theme||""))) sig.unshift(["neut","Im Kataster der belasteten Standorte eingetragen. Altlasten vor einer Entwicklung abklären."]);
   if(sim&&sim.reserve&&sim.reserve[1]<10){
-    s=Math.min(s,40);
-    sig.unshift(["neut", sim.rules.custom ? "Mit Ihren Werten ist die zulässige Geschossfläche bereits ausgeschöpft." : "Nach den Standardwerten ist die zulässige Geschossfläche bereits ausgeschöpft. Mit den Werten Ihrer Gemeinde kann das anders aussehen."]);
+    s=Math.min(s,35);
+    sig.unshift(["neut", sim.rules.custom ? "Mit Ihren Werten ist die zulässige Geschossfläche bereits ausgeschöpft." : "Die zulässige Geschossfläche ist nach dieser Schätzung bereits ausgeschöpft."]);
   }
-  s=Math.min(100,s);
-  const level = s>=65?"Hohes Potenzial":s>=40?"Mittleres Potenzial":"Geringes Potenzial";
+  s=Math.max(0,Math.min(100,s));
+  const level = s>=60?"Hohes Potenzial":s>=35?"Mittleres Potenzial":"Geringes Potenzial";
   return {score:s, level, signals:sig.slice(0,4)};
 }
 
@@ -804,7 +811,8 @@ function loadExtras(d){
   if(d.oerebWs&&d.egrid) api(`/api/oereb?egrid=${encodeURIComponent(d.egrid)}&ws=${encodeURIComponent(d.oerebWs)}`).then(v=>done("oereb",v)).catch(()=>done("oereb",null));
   else d.x.oereb=null;
   api(`/api/oev?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`).then(v=>done("oev",v)).catch(()=>done("oev",null));
-  api(`/api/umgebung?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`).then(v=>done("umg",v)).catch(()=>done("umg",null));
+  const umg=()=>api(`/api/umgebung?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`);
+  umg().catch(()=>new Promise(r=>setTimeout(r,2500)).then(umg)).then(v=>done("umg",v)).catch(()=>done("umg",null));
   if(d.bfsNr) api(`/api/lwz?bfs=${d.bfsNr}&kt=${encodeURIComponent(d.kanton||"")}`).then(v=>done("lwz",v)).catch(()=>done("lwz",null));
   else d.x.lwz=null;
 }
@@ -872,7 +880,7 @@ function lageHtml(d){
   else{
     const o=x.oev, st=o.stop;
     oevH=`<ul class="xlist">
-      <li><span class="k">Haltestelle</span><span class="v">${esc(st.name)}<small>${fmt(st.distance)} m, ca. ${o.walkMin} Min. zu Fuss${st.icon?` · ${st.icon==="bus"?"Bus":st.icon==="train"?"Bahn":st.icon==="tram"?"Tram":esc(st.icon)}`:""}</small></span><span class="r"></span></li>
+      <li><span class="k">Haltestelle</span><span class="v">${esc(st.name)}<small>${fmt(st.distance)} m, ca. ${o.walkMin} Min. zu Fuss${st.icon?` · ${({bus:"Bus",train:"Bahn",tram:"Tram",ship:"Schiff",cableway:"Seilbahn",funicular:"Standseilbahn"})[st.icon]||esc(st.icon)}`:""}</small></span><span class="r"></span></li>
       ${o.targets.map(t=>`<li><span class="k">${esc(t.name)}</span><span class="v">${t.min!=null?`<b>${t.min} Min.</b>${t.transfers!=null?`<small>${t.transfers===0?"direkt":t.transfers===1?"1 Umstieg":t.transfers+" Umstiege"}, ab Haltestelle</small>`:""}`:"keine Verbindung gefunden"}</span><span class="r"></span></li>`).join("")}
     </ul><p class="sim-note">Schnellste Verbindung ${esc(o.when)}. Quelle: transport.opendata.ch</p>`;
   }
