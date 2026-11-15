@@ -142,6 +142,7 @@ footer a{color:inherit}
 .sim-tile.key dd{color:var(--sim-ink)}
 .sim-tile dd small{display:block;font-family:var(--f-body);font-stretch:100%;font-weight:400;font-size:12.5px;color:var(--muted);margin-top:4px}
 .sim-note{margin:0;font-size:12.5px;color:var(--muted)}
+.sim-grid.g4{grid-template-columns:repeat(4,1fr)}
 .sim-tag{font-family:var(--f-mono);font-size:11px;color:var(--sim-ink);border:1px solid var(--sim);border-radius:4px;padding:2px 6px}
 .sim-edit{justify-self:start;background:none;border:0;padding:0;font:600 13.5px var(--f-body);color:var(--sim-ink);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 .sim-form{display:grid;grid-template-columns:repeat(3,1fr) auto;gap:10px 12px;align-items:end;padding:14px;border:1px dashed var(--sim);border-radius:8px;background:var(--sim-soft)}
@@ -196,7 +197,7 @@ footer a{color:inherit}
 .val .sim-tag{color:var(--accent);border-color:var(--accent)}
 .val .sim-edit{color:var(--accent)}
 .val .sim-form{border-color:var(--accent);background:var(--accent-soft);grid-template-columns:1fr 1fr auto}
-@media (max-width:620px){ .sim-grid{grid-template-columns:1fr} .sim-form,.val .sim-form{grid-template-columns:1fr 1fr} }
+@media (max-width:620px){ .sim-grid,.sim-grid.g4{grid-template-columns:1fr 1fr} .sim-form,.val .sim-form{grid-template-columns:1fr 1fr} }
 /* ÖREB und Lage */
 .xlist{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .xlist li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;font-size:14px}
@@ -725,6 +726,7 @@ function render(d){
     </div>
     ${simBlock(sim, d)}
     ${valBlock(d)}
+    ${useMap&&sim&&sim.foot?`<section class="sim" id="garageSection">${garageHtml(d)}</section>`:""}
     ${useMap?`<section class="sim" id="oerebSection">${oerebHtml(d)}</section><section class="sim" id="lageSection">${lageHtml(d)}</section>`:""}
     <dl class="facts" style="margin:0">${facts.map(([k,v,s])=>`<div class="fact"><dt>${k}</dt><dd>${v}${s?`<small>${s}</small>`:""}</dd></div>`).join("")}</dl>
     <div class="note">Die zulässige Ausnützung legt Ihre Gemeinde in der Bau- und Zonenordnung fest. Diese Werte sind in den Bundesdaten nicht enthalten. Für eine verbindliche Einschätzung prüfen wir das Grundstück persönlich.</div>
@@ -746,6 +748,7 @@ function render(d){
   }
   wireSim(d);
   wireVal(d);
+  if(useMap) setTimeout(()=>refreshGarage(d),0);
   current=d;
   if(useMap && !d.extrasStarted) loadExtras(d);
   renderLead(d, ev);
@@ -957,6 +960,94 @@ function lageHtml(d){
   return head+`<div class="xgrid"><div><h4>Öffentlicher Verkehr</h4>${oevH}</div><div><h4>Umgebung</h4>${umgH}</div></div><div><h4 style="margin:4px 0 8px;font:600 13px var(--f-body)">Leerwohnungsziffer</h4>${lwzH}</div>`;
 }
 
+/* ---------- Tiefgarage und Aushub (aus dem Schemaprojekt) ---------- */
+// Kostenansätze: Tiefgaragenplatz CHF 40'000–70'000 (Neho, Mai 2026: einfach 40–55k, mittel 55–70k),
+// Grundwasser +CHF 10'000–20'000 pro Platz (Neho), Aushub inkl. Abtransport und Deponie CHF 50–90/m³ (DaiBau-Richtpreise),
+// Baugrubenabschluss CHF 400–900 pro m² Wand (Annahme, je nach System und Baugrund)
+const GAR_COST={pp:[40000,70000], gw:[10000,20000], aushub:[50,90], shoring:[400,900]};
+/* Höhe am Ursprung (m ü. M.), einmal pro Parzelle */
+async function originHeight(d){
+  if(d.h3d!=null) return d.h3d;
+  if(d.hIfc!=null) return d.hIfc;
+  let h=NaN;
+  try{ const j=await getJSON(`${API}/height?easting=${d.e}&northing=${d.n}&sr=2056`, 6000); h=Number(j.height); }catch(e){}
+  d.hIfc=isFinite(h)?h:0; return d.hIfc;
+}
+/* Schemaprojekt berechnen (mit Gelände), zwischengespeichert pro Simulationsstand */
+async function getDesign(d){
+  const sim=d.sim; if(!window.makeDesign||!sim||!sim.foot||d.demo||d.e==null) return null;
+  const r=sim.rules, key=[Math.round(sim.gfHi),r.geschosse,r.abstand].join("|");
+  if(d.designKey===key) return d.design;
+  const h=await originHeight(d);
+  const grid=await sampleTerrain(d, h);
+  const terrain=grid?window.terrainFromGrid(grid):()=>0;
+  let design=null;
+  try{ design=window.makeDesign({parcel:d.parcel, footprint:sim.foot, floorsMax:r.geschosse, gfMax:sim.gfHi, addressPoint:[0,0], terrain, terrainGrid:grid}); }
+  catch(e){ console.error(e); }
+  d.design=design; d.designKey=key; d.designTerrain=!!grid;
+  return design;
+}
+const chfR=(a,b)=>"CHF "+chfRange(a,b);
+function garageCosts(d,g){
+  const gw=d.x?.oereb?.items?.some(i=>/Grundwasser/i.test(i.theme||""));
+  const n=g.garage?g.stallsNet:0;
+  const c={ pp:n?[n*GAR_COST.pp[0], n*GAR_COST.pp[1]]:null,
+    shoring:g.shoringArea?[g.shoringArea*GAR_COST.shoring[0], g.shoringArea*GAR_COST.shoring[1]]:null,
+    gw:gw&&n?[n*GAR_COST.gw[0], n*GAR_COST.gw[1]]:null,
+    aushub:[g.vFest*GAR_COST.aushub[0], g.vFest*GAR_COST.aushub[1]], gwFlag:gw };
+  const tot=[0,1].map(i=>(c.pp?c.pp[i]:c.aushub[i])+(c.shoring?c.shoring[i]:0)+(c.gw?c.gw[i]:0));
+  c.total=tot; return c;
+}
+function garageHtml(d){
+  const head=`<div class="sim-head"><div class="eyebrow">Tiefgarage und Aushub</div><span class="sim-tag">Schemaprojekt</span></div>`;
+  if(d.design===undefined) return head+`<div class="xload">Rampe, Aushub und Kosten werden berechnet …</div>`;
+  const D=d.design, g=D&&D.garage;
+  if(!g) return head+`<p class="sim-note">Für diese Parzelle lässt sich kein Schemaprojekt ableiten.</p>`;
+  const R=g.ramp, cst=garageCosts(d,g), n1=v=>String(v).replace(".",",");
+  const tiles=[];
+  if(g.garage){
+    tiles.push(`<div class="sim-tile key"><dt>Parkplätze</dt><dd>${g.stallsNet}<small>${R&&R.lostStalls?`${g.stalls} Felder, davon ${R.lostStalls} durch die Rampe belegt`:"im Untergeschoss unter dem Gebäude"}</small></dd></div>`);
+    tiles.push(`<div class="sim-tile"><dt>Rampe</dt><dd>${R?`${n1(R.length)} m`:"–"}<small>${R?`max. ${R.slope} %, ${R.lanes===2?"zweispurig":"einspurig"} ${n1(R.width)} m`:""}</small></dd></div>`);
+  } else {
+    tiles.push(`<div class="sim-tile key"><dt>Untergeschoss</dt><dd>Keller<small>Tiefgarage erst ab 4 Wohnungen</small></dd></div>`);
+  }
+  tiles.push(`<div class="sim-tile"><dt>Aushub</dt><dd>${fmt(g.vFest)} m³<small>fest, ca. ${fmt(g.trucks)} Lastwagenfahrten</small></dd></div>`);
+  tiles.push(`<div class="sim-tile"><dt>Kosten ${g.garage?"Tiefgarage":"Aushub"}</dt><dd>${chfR(cst.total[0],cst.total[1])}<small>${g.garage?`CHF ${fmt(GAR_COST.pp[0])}–${fmt(GAR_COST.pp[1])} pro Platz`:"inkl. Abtransport und Deponie"}</small></dd></div>`);
+  const rows=[];
+  const add=(k,v,r,flag)=>rows.push(`<li><span class="k">${k}</span><span class="v">${v}${flag||""}</span><span class="r">${r||""}</span></li>`);
+  if(R){
+    add("Rampenprofil", R.segments.map(([nm,l,sl])=>`${nm} ${n1(l)} m · ${n1(sl)} %`).join(" → "), `${n1(R.drop)} m Höhe`);
+    add("Lage", `${n1(Math.min(R.outLen,R.length))} m vor der Fassade${R.insideLen>0?`, ${n1(R.insideLen)} m unter dem Gebäude`:""}<small>${R.covered?"gedeckt, bis 15 % zulässig":"ungedeckt, bis 12 % zulässig"}</small>`, "");
+    add("Machbarkeit", R.feasible?"Gerade Rampe von der Strasse möglich":"Gerade Rampe zu lang für das Grundstück. Parallelrampe entlang der Fassade oder Wendelrampe prüfen.", "",
+      R.feasible?'<span class="flag ok">Gut</span>':'<span class="flag warn">Prüfen</span>');
+    add("Breite", `${R.lanes===2?"Zweispurig 5,6 m (Gegenverkehr)":"Einspurig 3,5 m mit Lichtsignal"}<small>${R.lanes===2?"mehr als 30 Parkplätze":"bis 30 Parkplätze üblich"}</small>`, "");
+  }
+  add("Baugrube", `Sohle ${n1(g.sohleUnterEG)} m unter EG, Aushubtiefe bis ${n1(g.depthMax)} m (Mittel ${n1(g.depthAvg)} m)`, "");
+  add("Sicherung", g.shoring.length?`Baugrubenabschluss nötig (Rühl- oder Spundwand): ${g.shoring.map(esc).join("; ")}`:"Böschung 1:1 rundum möglich, kein Baugrubenabschluss nötig", g.shoringArea?`${fmt(g.shoringArea)} m² Wand`:"",
+    g.shoring.length?'<span class="flag warn">Kosten</span>':'<span class="flag ok">Gut</span>');
+  add("Aushub", `Grube ${fmt(g.vPit)} m³ · Böschung ${fmt(g.vBoe)} m³${g.vRamp?` · Rampe ${fmt(g.vRamp)} m³`:""}<small>${fmt(g.vLose)} m³ lose (Auflockerung 25 %)</small>`, "");
+  add("Grundwasser", cst.gwFlag?"Laut ÖREB-Kataster liegt die Parzelle in einem Grundwasserschutzgebiet. Bauen im Grundwasser ist stark eingeschränkt.":"Kein Grundwasserschutz im ÖREB-Kataster. Den Grundwasserspiegel trotzdem beim Kanton prüfen (Grundwasserkarte).", "",
+    cst.gwFlag?'<span class="flag warn">Abklären</span>':'<span class="flag info">Prüfen</span>');
+  const krows=[];
+  if(cst.pp) krows.push(`<li><span class="k">Tiefgarage</span><span class="v">${chfR(cst.pp[0],cst.pp[1])}<small>${g.stallsNet} Plätze × CHF ${fmt(GAR_COST.pp[0])}–${fmt(GAR_COST.pp[1])}, inkl. Aushub, Rampe und Rohbau</small></span><span class="r"></span></li>`);
+  if(cst.shoring) krows.push(`<li><span class="k">Baugrubenabschluss</span><span class="v">+ ${chfR(cst.shoring[0],cst.shoring[1])}<small>${fmt(g.shoringArea)} m² × CHF ${GAR_COST.shoring[0]}–${GAR_COST.shoring[1]} (Annahme)</small></span><span class="r"></span></li>`);
+  if(cst.gw) krows.push(`<li><span class="k">Grundwasser</span><span class="v">+ ${chfR(cst.gw[0],cst.gw[1])}<small>Zuschlag weisse Wanne und Wasserhaltung, falls im Grundwasser</small></span><span class="r"></span></li>`);
+  krows.push(`<li><span class="k">${g.garage?"Davon Aushub":"Aushub"}</span><span class="v">${chfR(cst.aushub[0],cst.aushub[1])}<small>${fmt(g.vFest)} m³ × CHF ${GAR_COST.aushub[0]}–${GAR_COST.aushub[1]} inkl. Abtransport und Deponie</small></span><span class="r"></span></li>`);
+  return head+`<dl class="sim-grid${tiles.length===4?" g4":""}" style="margin:0">${tiles.join("")}</dl>
+    <div class="xgrid"><div><h4>Rampe und Baugrube</h4><ul class="xlist">${rows.join("")}</ul></div><div><h4>Kosten (grobe Bandbreite)</h4><ul class="xlist">${krows.join("")}</ul></div></div>
+    <p class="sim-note">${d.designTerrain?"Gelände aus swissALTI3D.":"Ohne Geländedaten, flach angenommen."} Rampe nach üblichen Werten (Vorplatz 5 m mit max. 5 %, Ausrundungen, max. 12 % ungedeckt bzw. 15 % gedeckt) gemäss VSS-Praxis und kommunalen Bauordnungen; massgebend sind Bauordnung und VSS-Norm. Kosten: Neho (Mai 2026), DaiBau-Richtpreise. Grobe Schätzung ±30 %, keine Kostenberechnung.</p>`;
+}
+let garTimer=null;
+function refreshGarage(d){
+  const el=document.getElementById("garageSection"); if(!el) return;
+  clearTimeout(garTimer);
+  garTimer=setTimeout(async()=>{
+    await getDesign(d);
+    if(current!==d) return;
+    const e2=document.getElementById("garageSection"); if(e2){ e2.innerHTML=garageHtml(d); fitFrame(); }
+  }, 250);
+}
+
 /* ---------- BIM-Export (IFC4) des simulierten Volumens und Vorschau im Browser ---------- */
 /* Geländeraster um die Parzelle aus swisstopo (Profil-API, swissALTI3D), Höhen relativ zum Ursprung */
 async function sampleTerrain(d, h0){
@@ -1003,14 +1094,10 @@ async function makeIfc(d){
     "Erstellt": new Date().toLocaleString("de-CH",{timeZone:"Europe/Zurich"}),
     "Hinweis": "Unverbindliche Schätzung aus dem Grundstück-Check (Prototyp TTMS Schweiz AG). Massgebend sind Bau- und Zonenordnung sowie der ÖREB-Auszug."
   };
-  // Schemaprojekt mit Gelände; ohne Ergebnis bleibt es beim einfachen Volumen
-  let design=null;
-  if(window.makeDesign && sim.foot){
-    const grid=await sampleTerrain(d, h);
-    const terrain=grid?window.terrainFromGrid(grid):()=>0;
-    try{ design=window.makeDesign({parcel:d.parcel, footprint:sim.foot, floorsMax:r.geschosse, gfMax:sim.gfHi, addressPoint:[0,0], terrain, terrainGrid:grid}); }
-    catch(e){ console.error(e); design=null; }
-  }
+  // Schemaprojekt mit Gelände (gemeinsam mit dem Abschnitt Tiefgarage); ohne Ergebnis bleibt es beim einfachen Volumen
+  const design=await getDesign(d);
+  if(design&&design.garage){ const cst=garageCosts(d,design.garage);
+    props["Kosten Tiefgarage/Aushub CHF"]=`${fmt(Math.round(cst.total[0]/1000)*1000)}–${fmt(Math.round(cst.total[1]/1000)*1000)} (grobe Schätzung)`; }
   const base=(d.label||"Parzelle").split(",")[0].replace(/[^\wäöüÄÖÜ-]+/g,"_").replace(/^_|_$/g,"");
   const fileName=`${design?"Schemaprojekt":"Potenzial"}_${base}.ifc`;
   const txt=window.buildIfc({
@@ -1093,6 +1180,7 @@ function updateSim(d){
   if(d.demo){ const fig=document.querySelector(".plan"); if(fig) fig.firstElementChild.outerHTML=planSVG(d); }
   updateVal(d);
   refreshIfcPreview(d);
+  refreshGarage(d);
   fitFrame();
 }
 

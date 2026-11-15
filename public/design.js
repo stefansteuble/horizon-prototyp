@@ -8,7 +8,12 @@
    Alle Koordinaten lokal in Metern (x Ost, y Nord) relativ zum Adresspunkt, z relativ zur Geländehöhe dort. */
 (function (global) {
   const H_FLOOR = 3.0, T_SLAB = 0.3, T_EXT = 0.35, T_INT = 0.2, MAX_DEPTH = 16, UNIT_M2 = 95;
-  const BALC_DEPTH = 2.0, RAMP_W = 3.5, RAMP_L = 18, STALL_M2 = 27;
+  const BALC_DEPTH = 2.0, RAMP_W = 3.5, RAMP_W2 = 5.6, RAMP_2LANE_FROM = 30, STALL_M2 = 27;
+  // Rampe: Vorplatz 5 m mit 3 % (Bauordnungen: max. 5 %, mind. 5 m), Ausrundungen je 4 m mit halber Neigung,
+  // Hauptneigung ungedeckt 12 %, gedeckt 15 %
+  const VORPLATZ_L = 5, VORPLATZ_S = 0.03, AUSR_L = 4, RAMP_S_OPEN = 0.12, RAMP_S_COVERED = 0.15;
+  // Aushub: Auflockerungsfaktor und Ladung pro Lastwagen (m³ lose)
+  const LOOSE = 1.25, TRUCK_M3 = 10;
 
   const rot = ([x, y], a) => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)];
   const add = (a, b) => [a[0] + b[0], a[1] + b[1]], sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
@@ -183,29 +188,122 @@
     // Dach
     elements.push({ ifc: "IFCSLAB", predef: "ROOF", name: "Flachdach", storey: sDach, style: "roof", shapes: [ext(outer, -T_SLAB, T_SLAB + 0.2)] });
 
-    // Rampe zur Tiefgarage von der Strassenseite
-    let ramp = null;
+    // ---------- Rampe zur Tiefgarage (Regeln gemäss VSS-Praxis und kommunalen Bauordnungen) ----------
+    // Vorplatz an der Strasse: 5 m, max. 5 % (wir nehmen 3 %); Ausrundungen oben und unten je 4 m mit halber Neigung;
+    // Hauptneigung max. 12 % ungedeckt bzw. 15 % gedeckt; einspurig 3,5 m bis 30 Parkplätze, darüber zweispurig 5,6 m.
+    let ramp = null, garageInfo = null;
+    const zGar = zEG - H_FLOOR;                                    // Garagenboden (OK fertig)
     if (garage && street) {
       const dir = norm(sub(c, street.mid)), perp = [-dir[1], dir[0]];
       const proj = outer.map(p => dot(sub(p, c), dir)), projP = outer.map(p => dot(sub(p, c), perp));
       const halfP = (Math.max(...projP) - Math.min(...projP)) / 2;
-      const end = add(add(c, mul(dir, Math.min(...proj))), mul(perp, Math.max(0, halfP - RAMP_W / 2 - 0.5)));
-      // Rampenlänge aus dem Höhenunterschied (max. 15 % Gefälle plus Übergänge), Start an der Strassenseite
-      const outLen = Math.max(0, dot(sub(end, street.mid), dir));
-      const z1 = zEG - H_FLOOR;
-      let rl = RAMP_L;
-      for (let k = 0; k < 3; k++) { const st0 = sub(end, mul(dir, Math.min(rl, outLen))); rl = Math.max(6, Math.min(24, (zAt(st0[0], st0[1]) - z1) / 0.15 + 2)); }
-      const start = sub(end, mul(dir, Math.min(rl, outLen)));
-      const stop = add(start, mul(dir, rl));
-      const z0 = zAt(start[0], start[1]);
-      const w2 = mul(perp, RAMP_W / 2);
-      const top = [sub(start, w2), add(start, w2), add(stop, w2), sub(stop, w2)];
-      const zs = [z0, z0, z1, z1], th = 0.3;
-      const pts = top.map((p, k) => [p[0], p[1], zs[k]]).concat(top.map((p, k) => [p[0], p[1], zs[k] - th]));
-      const tris = [[0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6], [0, 4, 5], [0, 5, 1], [1, 5, 6], [1, 6, 2], [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0]];
-      ramp = { length: Math.round(rl * 10) / 10, slope: Math.round((z0 - z1) / rl * 100) };
+      const lanes = stalls > RAMP_2LANE_FROM ? 2 : 1, rw = lanes === 2 ? RAMP_W2 : RAMP_W;
+      const facade = add(add(c, mul(dir, Math.min(...proj))), mul(perp, Math.max(0, halfP - rw / 2 - 0.5)));
+      // Startpunkt an der Strassenkante (Projektion der Fassadenachse)
+      const outLen = Math.max(0, dot(sub(facade, street.mid), dir));
+      const start = sub(facade, mul(dir, outLen));
+      const zStart = zAt(start[0], start[1]);
+      const drop = zStart - zGar;
+      // Längen bestimmen: erst ungedeckt (12 %), reicht der Platz bis zur Fassade nicht, Rest gedeckt (bis 15 %)
+      // Kleiner Höhenunterschied: nur Ausrundungen mit flacherer Neigung, keine Hauptrampe
+      const plan = s => { const dRest = drop - VORPLATZ_L * VORPLATZ_S;
+        if (dRest <= AUSR_L * s) { const s2 = Math.max(0, dRest / AUSR_L); return { s: s2, main: 0, total: VORPLATZ_L + 2 * AUSR_L }; }
+        const main = (dRest - AUSR_L * s) / s; return { s, main, total: VORPLATZ_L + 2 * AUSR_L + main }; };
+      // 12 % ungedeckt; nur wenn die Rampe dann deutlich ins Gebäude ragt, gedeckt mit 15 %
+      let pr = plan(RAMP_S_OPEN), covered = false;
+      if (pr.total > outLen + 0.5 && pr.main > 3) { pr = plan(RAMP_S_COVERED); covered = true; }
+      else if (pr.total > outLen + 0.5) covered = true;           // Teil unter dem Gebäude ist ohnehin gedeckt
+      if (drop <= VORPLATZ_L * VORPLATZ_S + 0.05) pr = { s: 0, main: 0, total: VORPLATZ_L };
+      // Längsprofil: Stationen mit Höhe
+      const segs = [["Vorplatz", VORPLATZ_L, VORPLATZ_S], ["Ausrundung oben", AUSR_L, pr.s / 2], ["Rampe", pr.main, pr.s], ["Ausrundung unten", AUSR_L, pr.s / 2]]
+        .filter(x => x[1] > 0.01 && (x[2] > 0 || x[0] === "Vorplatz"));
+      const st = [[0, zStart]];
+      let t = 0, z = zStart;
+      for (const [, l, sl] of segs) { const n = Math.max(1, Math.ceil(l)); for (let k = 1; k <= n; k++) { t += l / n; z -= sl * l / n; st.push([t, z]); } }
+      // Ende auf Garagenniveau ausgleichen (Rundung)
+      const corr = st[st.length - 1][1] - zGar; if (pr.s > 0) st.forEach((p, i) => { p[1] -= corr * (p[0] / t); });
+      const P = tt => add(start, mul(dir, tt));
+      const w2 = mul(perp, rw / 2), thick = 0.3, tw = 0.25;
+      // Fahrbahn als Band entlang der Stationen
+      const pts = [], tris = [];
+      st.forEach(([tt, zz]) => { const p = P(tt); const a = sub(p, w2), b = add(p, w2); pts.push([a[0], a[1], zz], [b[0], b[1], zz], [a[0], a[1], zz - thick], [b[0], b[1], zz - thick]); });
+      for (let i = 0; i < st.length - 1; i++) { const o = i * 4, q = o + 4;
+        tris.push([o, o + 1, q + 1], [o, q + 1, q], [o + 2, q + 3, o + 3], [o + 2, q + 2, q + 3], [o, q, q + 2], [o, q + 2, o + 2], [o + 1, o + 3, q + 3], [o + 1, q + 3, q + 1]); }
+      const nL = (st.length - 1) * 4; tris.push([0, 2, 3], [0, 3, 1], [nL, nL + 1, nL + 3], [nL, nL + 3, nL + 2]);
+      // Stützmauern links und rechts: von Unterkante Fahrbahn bis 10 cm über Gelände, mindestens 1 m Brüstung
+      const wall = side => {
+        const wp = [], wt = [];
+        st.forEach(([tt, zz]) => { const p = P(tt), o = add(p, mul(perp, side * (rw / 2 + tw / 2))), oi = add(o, mul(perp, -side * tw / 2)), oo = add(o, mul(perp, side * tw / 2));
+          const zt = Math.max(zAt(o[0], o[1]) + 0.1, zz + 1.0), zb = zz - thick;
+          wp.push([oi[0], oi[1], zb], [oo[0], oo[1], zb], [oo[0], oo[1], zt], [oi[0], oi[1], zt]); });
+        for (let i = 0; i < st.length - 1; i++) { const o = i * 4, q = o + 4;
+          wt.push([o, q, q + 3], [o, q + 3, o + 3], [o + 1, o + 2, q + 2], [o + 1, q + 2, q + 1], [o + 3, q + 3, q + 2], [o + 3, q + 2, o + 2], [o, o + 1, q + 1], [o, q + 1, q]); }
+        const m = (st.length - 1) * 4; wt.push([0, 3, 2], [0, 2, 1], [m, m + 1, m + 2], [m, m + 2, m + 3]);
+        return { type: "mesh", pts: wp, tris: wt };
+      };
+      const maxS = Math.round(pr.s * 100), lenR = Math.round(t * 10) / 10;
+      const insideLen = Math.max(0, t - outLen);
+      // Rampe im Gebäude: kostet Parkplätze; zu lang = gerade Rampe nicht machbar
+      const garDepth = Math.max(...proj) - Math.min(...proj);
+      const feasible = insideLen <= garDepth - 6;                 // mind. 6 m Fahrgasse bleibt
+      const lostStalls = insideLen > 0 ? Math.ceil(insideLen * (rw + 0.5) / STALL_M2) : 0;
+      ramp = { length: lenR, slope: maxS, lanes, width: rw, covered, insideLen: Math.round(insideLen * 10) / 10, drop: Math.round(drop * 100) / 100,
+        feasible, lostStalls, outLen: Math.round(outLen * 10) / 10,
+        segments: segs.map(([n, l, sl]) => [n, Math.round(l * 10) / 10, Math.round(sl * 1000) / 10]), start, dir, rw, st };
       elements.push({ ifc: "IFCRAMP", predef: "STRAIGHT_RUN_RAMP", name: "Einfahrt Tiefgarage", storey: "site", style: "ramp", shapes: [{ type: "mesh", pts, tris }],
-        props: { "Länge m": ramp.length, "Breite m": RAMP_W, "Gefälle %": ramp.slope } });
+        props: { "Länge m": lenR, "Breite m": rw, "Spuren": lanes, "Höhendifferenz m": ramp.drop, "Max. Neigung %": maxS,
+          "Vorplatz": `${VORPLATZ_L} m mit ${Math.round(VORPLATZ_S * 100)} %`, "Ausrundungen": `je ${AUSR_L} m mit ${Math.round(pr.s * 50)} %`,
+          "Überdeckung": covered ? "gedeckt (bis 15 %)" : "ungedeckt (bis 12 %)", "Davon unter dem Gebäude m": ramp.insideLen,
+          "Gerade Rampe machbar": feasible ? "ja" : "nein, Parallel- oder Wendelrampe prüfen", "Parkplätze verloren durch Rampe": lostStalls || null,
+          "Grundlage": "Übliche Werte nach VSS-Praxis und kommunalen Bauordnungen, im Einzelfall prüfen" } });
+      elements.push({ ifc: "IFCWALL", predef: "SOLIDWALL", name: "Stützmauer Rampe links", storey: "site", style: "wall", shapes: [wall(-1)] });
+      elements.push({ ifc: "IFCWALL", predef: "SOLIDWALL", name: "Stützmauer Rampe rechts", storey: "site", style: "wall", shapes: [wall(1)] });
+    }
+
+    // ---------- Aushub und Baugrube ----------
+    // Grube: Untergeschoss + 1 m Arbeitsraum, Sohle = Garagenboden − Bodenplatte − 15 cm Magerbeton.
+    // Böschung 1:1 (45°), wo der Platz bis zur Parzellengrenze reicht, sonst Baugrubenabschluss (Rühl- oder Spundwand).
+    {
+      const zSohle = zGar - T_SLAB - 0.15, AR = 1.0;
+      const pit = quad(-L / 2 - AR, -D / 2 - AR, L / 2 + AR, D / 2 + AR);
+      // Volumen der Grube durch Abtasten (0,5 m Raster)
+      let vPit = 0, dMax = 0, dSum = 0, nCell = 0; const step = 0.5;
+      for (let u = -L / 2 - AR + step / 2; u < L / 2 + AR; u += step) for (let v = -D / 2 - AR + step / 2; v < D / 2 + AR; v += step) {
+        const p = W(u, v), dd = Math.max(0, zAt(p[0], p[1]) - zSohle); vPit += dd * step * step; dMax = Math.max(dMax, dd); dSum += dd; nCell++; }
+      // Seiten der Grube: Tiefe am Rand, Platz bis zur Parzellengrenze
+      const distToParcel = p => { let m = Infinity; for (let i = 0; i < parcel.length; i++) { const a0 = parcel[i], b0 = parcel[(i + 1) % parcel.length], e = sub(b0, a0);
+        const tt = Math.max(0, Math.min(1, dot(sub(p, a0), e) / (dot(e, e) || 1))); m = Math.min(m, len(sub(p, add(a0, mul(e, tt))))); } return inside(p, parcel) ? m : 0; };
+      const sides = [["Süd", [-L / 2 - AR, -D / 2 - AR], [L / 2 + AR, -D / 2 - AR]], ["Nord", [-L / 2 - AR, D / 2 + AR], [L / 2 + AR, D / 2 + AR]],
+        ["West", [-L / 2 - AR, -D / 2 - AR], [-L / 2 - AR, D / 2 + AR]], ["Ost", [L / 2 + AR, -D / 2 - AR], [L / 2 + AR, D / 2 + AR]]];
+      // Bezeichnung der Seiten nach Himmelsrichtung der Aussennormale
+      const compass = n => { const a = Math.atan2(n[0], n[1]) * 180 / Math.PI; const k = Math.round(((a % 360) + 360) % 360 / 90) % 4; return ["Nord", "Ost", "Süd", "West"][k]; };
+      let vBoe = 0, shoring = [], shoringArea = 0;
+      for (const [, a0, b0] of sides) {
+        const A = W(...a0), B = W(...b0), mid = mul(add(A, B), 0.5), sideLen = len(sub(B, A));
+        const nrm = norm(sub(mid, c)), dSide = (Math.max(0, zAt(A[0], A[1]) - zSohle) + Math.max(0, zAt(B[0], B[1]) - zSohle) + 2 * Math.max(0, zAt(mid[0], mid[1]) - zSohle)) / 4;
+        const room = Math.min(distToParcel(A), distToParcel(B), distToParcel(mid));
+        if (dSide < 1.5) continue;                                    // bis 1,5 m Tiefe senkrecht möglich
+        if (room >= dSide) vBoe += sideLen * dSide * dSide / 2;
+        else { const ar = Math.round(sideLen * dSide); shoring.push(`${compass(nrm)} (${Math.round(sideLen)} m, Platz ${Math.round(room * 10) / 10} m bei ${Math.round(dSide * 10) / 10} m Tiefe)`); shoringArea += ar; }
+      }
+      // Aushub für die Rampe (Trog inkl. Mauern und Arbeitsraum)
+      let vRamp = 0;
+      if (ramp) {
+        const wTot = ramp.rw + 2 * 0.25 + 2 * 0.6;
+        for (let i = 0; i < ramp.st.length - 1; i++) { const [t0, z0] = ramp.st[i], [t1, z1] = ramp.st[i + 1]; const p = add(ramp.start, mul(ramp.dir, (t0 + t1) / 2));
+          if (dot(sub(p, c), ramp.dir) > Math.min(...outer.map(q => dot(sub(q, c), ramp.dir))) - AR) continue;   // innerhalb der Grube schon gezählt
+          vRamp += Math.max(0, zAt(p[0], p[1]) - ((z0 + z1) / 2 - 0.45)) * wTot * (t1 - t0); }
+      }
+      const vFest = Math.round(vPit + vBoe + vRamp), vLose = Math.round(vFest * LOOSE);
+      garageInfo = {
+        garage, stalls, depthMax: Math.round(dMax * 10) / 10, depthAvg: Math.round(dSum / Math.max(1, nCell) * 10) / 10,
+        vPit: Math.round(vPit), vBoe: Math.round(vBoe), vRamp: Math.round(vRamp), vFest, vLose, trucks: Math.ceil(vLose / TRUCK_M3),
+        shoring, shoringArea, ramp: ramp && { length: ramp.length, slope: ramp.slope, lanes: ramp.lanes, width: ramp.width, covered: ramp.covered,
+          insideLen: ramp.insideLen, drop: ramp.drop, segments: ramp.segments, feasible: ramp.feasible, lostStalls: ramp.lostStalls, outLen: ramp.outLen },
+        stallsNet: Math.max(0, stalls - (ramp ? ramp.lostStalls : 0)),
+        sohleUnterEG: Math.round((zEG - zSohle) * 100) / 100,
+      };
+      if (ramp) { delete ramp.st; }
     }
 
     // Gelände: Dreiecksnetz aus dem Höhenraster, Parzellengrenze als Band
@@ -228,12 +326,15 @@
     const gf = Math.round(L * D * floors);
     const unitCount = spaces.length;
     return {
-      storeys, elements,
+      storeys, elements, garage: garageInfo,
       summary: {
         "Gebäude (L × T) m": `${(Math.round(L * 10) / 10).toString().replace(".", ",")} × ${(Math.round(D * 10) / 10).toString().replace(".", ",")}`,
         "Geschosse über Terrain": floors, "Geschossfläche oberirdisch m2": gf, "Wohnungen": unitCount, "Wohnfläche total m2": spaces.reduce((t, x) => t + x, 0),
         "Wohnungen pro Geschoss": units, "Lift": hasLift ? "ja" : "nein",
-        "Untergeschoss": garage ? `Tiefgarage, ca. ${stalls} Parkplätze` : "Keller", "Rampe": ramp ? `${String(ramp.length).replace(".", ",")} m, ${ramp.slope} % Gefälle` : null,
+        "Untergeschoss": garage ? `Tiefgarage, ca. ${stalls} Parkplätze` : "Keller",
+        "Rampe": ramp ? `${String(ramp.length).replace(".", ",")} m, max. ${ramp.slope} %, ${ramp.lanes === 2 ? "zweispurig" : "einspurig"} ${String(ramp.width).replace(".", ",")} m, ${ramp.covered ? "gedeckt" : "ungedeckt"}` : null,
+        "Aushub m3 fest": garageInfo ? garageInfo.vFest : null, "Aushub Lastwagenfahrten": garageInfo ? garageInfo.trucks : null,
+        "Baugrubenabschluss nötig": garageInfo ? (garageInfo.shoring.length ? garageInfo.shoring.join("; ") : "nein, Böschung möglich") : null,
         "Erdgeschoss Höhe über Adresspunkt m": zEG,
       },
     };
