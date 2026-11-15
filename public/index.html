@@ -143,6 +143,17 @@ footer a{color:inherit}
 .sim-tile dd small{display:block;font-family:var(--f-body);font-stretch:100%;font-weight:400;font-size:12.5px;color:var(--muted);margin-top:4px}
 .sim-note{margin:0;font-size:12.5px;color:var(--muted)}
 .sim-grid.g4{grid-template-columns:repeat(4,1fr)}
+.consent{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--muted);cursor:pointer}
+.consent input{width:auto;margin:2px 0 0;accent-color:var(--accent)}
+.xlist.gwlist li{display:block}
+.xlist.gwlist li.gw-tot{display:grid}
+.gwlist .gw,.gwlist .gw-tot{display:grid;grid-template-columns:20px auto 1fr auto;gap:10px;align-items:start;cursor:pointer}
+.gwlist .gw input{width:auto;margin:3px 0 0;accent-color:var(--accent)}
+.gwlist .gw:has(input:checked) .v b{color:var(--accent)}
+.gw-f{color:var(--muted);font-size:12.5px}
+.gwlist .r small{display:block;text-align:right;font-size:11.5px}
+.gwlist .gw-tot{border-top:1px solid var(--line);padding-top:8px;cursor:default}
+.leadbox select{padding:11px 12px}
 .sim-tag{font-family:var(--f-mono);font-size:11px;color:var(--sim-ink);border:1px solid var(--sim);border-radius:4px;padding:2px 6px}
 .sim-edit{justify-self:start;background:none;border:0;padding:0;font:600 13.5px var(--f-body);color:var(--sim-ink);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 .sim-form{display:grid;grid-template-columns:repeat(3,1fr) auto;gap:10px 12px;align-items:end;padding:14px;border:1px dashed var(--sim);border-radius:8px;background:var(--sim-soft)}
@@ -204,6 +215,7 @@ footer a{color:inherit}
 .xlist .k{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding-top:3px;min-width:116px}
 .xlist .v{min-width:0;overflow-wrap:anywhere}
 .xlist .v small{display:block;color:var(--muted);font-size:12.5px}
+.xlist a{color:var(--accent)}
 .xlist .r{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;white-space:nowrap}
 .flag{display:inline-block;margin-left:8px !important;font-family:var(--f-mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:1px}
 .flag.ok{background:var(--accent-soft);color:var(--good)}
@@ -726,7 +738,11 @@ function render(d){
     </div>
     ${simBlock(sim, d)}
     ${valBlock(d)}
+    ${investBlock(d)}
+    ${sim&&sim.foot?finBlock(d):""}
     ${useMap&&sim&&sim.foot?`<section class="sim" id="garageSection">${garageHtml(d)}</section>`:""}
+    ${useMap?`<section class="sim" id="altSection">${altHtml(d)}</section>`:""}
+    ${sim&&sim.foot?gewerkeBlock(d):""}
     ${useMap?`<section class="sim" id="oerebSection">${oerebHtml(d)}</section><section class="sim" id="lageSection">${lageHtml(d)}</section>`:""}
     <dl class="facts" style="margin:0">${facts.map(([k,v,s])=>`<div class="fact"><dt>${k}</dt><dd>${v}${s?`<small>${s}</small>`:""}</dd></div>`).join("")}</dl>
     <div class="note">Die zulässige Ausnützung legt Ihre Gemeinde in der Bau- und Zonenordnung fest. Diese Werte sind in den Bundesdaten nicht enthalten. Für eine verbindliche Einschätzung prüfen wir das Grundstück persönlich.</div>
@@ -748,6 +764,8 @@ function render(d){
   }
   wireSim(d);
   wireVal(d);
+  if(current!==d){ gwSel.clear(); finEkVal=null; }
+  wireBiz(d);
   if(useMap) setTimeout(()=>refreshGarage(d),0);
   current=d;
   if(useMap && !d.extrasStarted) loadExtras(d);
@@ -848,7 +866,7 @@ function updateVal(d){
   const body=document.getElementById("valBody"); if(!body) return;
   body.innerHTML=valBodyHtml(d);
   const o=valOverride[valKey(d)]||{}; document.getElementById("valTag").textContent=o.preis||o.kosten?"Mit Ihren Werten":"Richtwert";
-  fitFrame();
+  updateBiz(d);
 }
 /* ---------- Zusatzdaten: ÖREB-Kataster, ÖV, Umgebung, Leerwohnungsziffer (über den Worker) ---------- */
 let current=null;
@@ -869,6 +887,7 @@ function loadExtras(d){
 function refreshExtras(d, k){
   if(k==="oereb"){
     d.oerebZone=pickZone(d.x.oereb);
+    const as=document.getElementById("altSection"); if(as) as.innerHTML=altHtml(d);
     // Simulation, Landwert und Score mit der echten Zone neu rechnen
     updateSim(d);
     document.getElementById("simSection")?.querySelector("#simAbstand")?.setAttribute("placeholder", String(effectiveRules(d)?.abstand??"").replace(".",","));
@@ -995,7 +1014,8 @@ function garageCosts(d,g){
     shoring:g.shoringArea?[g.shoringArea*GAR_COST.shoring[0], g.shoringArea*GAR_COST.shoring[1]]:null,
     gw:gw&&n?[n*GAR_COST.gw[0], n*GAR_COST.gw[1]]:null,
     aushub:[g.vFest*GAR_COST.aushub[0], g.vFest*GAR_COST.aushub[1]], gwFlag:gw };
-  const tot=[0,1].map(i=>(c.pp?c.pp[i]:c.aushub[i])+(c.shoring?c.shoring[i]:0)+(c.gw?c.gw[i]:0));
+  const ac=altCosts(d,g); c.alt=ac?[ac.aushub[0]+ac.unters[0], ac.aushub[1]+ac.unters[1]]:null;
+  const tot=[0,1].map(i=>(c.pp?c.pp[i]:c.aushub[i])+(c.shoring?c.shoring[i]:0)+(c.gw?c.gw[i]:0)+(c.alt?c.alt[i]:0));
   c.total=tot; return c;
 }
 function garageHtml(d){
@@ -1032,6 +1052,7 @@ function garageHtml(d){
   if(cst.pp) krows.push(`<li><span class="k">Tiefgarage</span><span class="v">${chfR(cst.pp[0],cst.pp[1])}<small>${g.stallsNet} Plätze × CHF ${fmt(GAR_COST.pp[0])}–${fmt(GAR_COST.pp[1])}, inkl. Aushub, Rampe und Rohbau</small></span><span class="r"></span></li>`);
   if(cst.shoring) krows.push(`<li><span class="k">Baugrubenabschluss</span><span class="v">+ ${chfR(cst.shoring[0],cst.shoring[1])}<small>${fmt(g.shoringArea)} m² × CHF ${GAR_COST.shoring[0]}–${GAR_COST.shoring[1]} (Annahme)</small></span><span class="r"></span></li>`);
   if(cst.gw) krows.push(`<li><span class="k">Grundwasser</span><span class="v">+ ${chfR(cst.gw[0],cst.gw[1])}<small>Zuschlag weisse Wanne und Wasserhaltung, falls im Grundwasser</small></span><span class="r"></span></li>`);
+  if(cst.alt) krows.push(`<li><span class="k">Altlasten</span><span class="v">+ ${chfR(cst.alt[0],cst.alt[1])}<small>Untersuchung und Entsorgung belasteter Aushub (siehe Altlasten)</small></span><span class="r"></span></li>`);
   krows.push(`<li><span class="k">${g.garage?"Davon Aushub":"Aushub"}</span><span class="v">${chfR(cst.aushub[0],cst.aushub[1])}<small>${fmt(g.vFest)} m³ × CHF ${GAR_COST.aushub[0]}–${GAR_COST.aushub[1]} inkl. Abtransport und Deponie</small></span><span class="r"></span></li>`);
   return head+`<dl class="sim-grid${tiles.length===4?" g4":""}" style="margin:0">${tiles.join("")}</dl>
     <div class="xgrid"><div><h4>Rampe und Baugrube</h4><ul class="xlist">${rows.join("")}</ul></div><div><h4>Kosten (grobe Bandbreite)</h4><ul class="xlist">${krows.join("")}</ul></div></div>
@@ -1044,8 +1065,363 @@ function refreshGarage(d){
   garTimer=setTimeout(async()=>{
     await getDesign(d);
     if(current!==d) return;
-    const e2=document.getElementById("garageSection"); if(e2){ e2.innerHTML=garageHtml(d); fitFrame(); }
+    const e2=document.getElementById("garageSection"); if(e2){ e2.innerHTML=garageHtml(d); }
+    updateBiz(d);
   }, 250);
+}
+
+/* ---------- Altlasten: Kataster der belasteten Standorte (KbS) aus dem ÖREB-Kataster ----------
+   Kantonaler KbS sowie die Kataster von VBS (Militär), BAZL (zivile Flugplätze) und BAV (öffentlicher Verkehr).
+   Mehrkosten belasteter Aushub: Annahme CHF 80–300/m³ gegenüber sauberem Aushub (Typ B bis E statt Typ A),
+   betroffen 30–100 % des Aushubs im belasteten Teil; Untersuchung (historisch und technisch) CHF 15'000–60'000. */
+const ALT_COST={m3:[80,300], share:[0.3,1.0], unters:[15000,60000]};
+const KBS_KAT=[[/Militaer|Militär/i,"Militär (VBS)"],[/Flug/i,"Zivilflugplatz (BAZL)"],[/OeffentlicherVerkehr|öffentlich/i,"Öffentlicher Verkehr (BAV)"]];
+function altInfo(d){
+  const o=d.x?.oereb;
+  if(o===undefined) return {state:"loading"};
+  if(!o) return {state:"nodata"};
+  const isK=t=>/BelasteteStandorte/i.test(t||"");
+  const items=o.items.filter(i=>isK(i.theme));
+  if(!items.length){
+    const none=o.notConcerned.some(isK), nd=o.withoutData.some(isK);
+    return {state: none?"none":nd?"nodata":"none"};
+  }
+  const entries=items.map(i=>{
+    const t=`${i.text||""} ${i.themeText||""}`, kat=(KBS_KAT.find(([re])=>re.test(`${i.theme} ${i.sub||""} ${i.themeText||""}`))||[0,"Kanton"])[1];
+    const status=/sanierungsbed/i.test(t)&&!/(nicht|weder)[^.]*sanierungsbed/i.test(t)?"sanierung"
+      :/überwachungsbed|ueberwachungsbed/i.test(t)&&!/(nicht|weder)[^.]*überwachungsbed/i.test(t)?"ueberwachung":"belastet";
+    const typ=/Ablagerung/i.test(t)?"Ablagerungsstandort (Deponie, Auffüllung)":/Betrieb/i.test(t)?"Betriebsstandort (Gewerbe, Industrie)":/Unfall/i.test(t)?"Unfallstandort":/Schiess/i.test(t)?"Schiessanlage":null;
+    return {kat, status, typ, text:i.text||i.themeText||"Belasteter Standort", pct:i.pct, docs:i.docs||[]};
+  });
+  const worst=entries.some(e=>e.status==="sanierung")?"sanierung":entries.some(e=>e.status==="ueberwachung")?"ueberwachung":"belastet";
+  const pct=Math.min(100, Math.max(...entries.map(e=>e.pct!=null?e.pct:100)));
+  return {state:"entry", entries, worst, pct};
+}
+function altCosts(d, g){
+  const a=altInfo(d); if(a.state!=="entry"||!g) return null;
+  const v=g.vFest*a.pct/100;
+  return {aushub:[v*ALT_COST.share[0]*ALT_COST.m3[0], v*ALT_COST.share[1]*ALT_COST.m3[1]], unters:ALT_COST.unters.slice(), vol:Math.round(v)};
+}
+const ALT_STATUS={sanierung:["Sanierungsbedürftig","warn","Sanierung nötig, Kosten trägt der Verursacher"], ueberwachung:["Überwachungsbedürftig","warn","Messungen nötig, Sanierung möglich"], belastet:["Belastet","info","weder überwachungs- noch sanierungsbedürftig"]};
+function altText(d){
+  const a=altInfo(d);
+  if(a.state==="entry") return `Eintrag ${a.entries.map(e=>`${e.kat}: ${ALT_STATUS[e.status][0]}${e.pct!=null?` (${Math.round(e.pct)} %)`:""}`).join("; ")}`;
+  if(a.state==="none") return "kein Eintrag";
+  return null;
+}
+function altHtml(d){
+  const head=`<div class="sim-head"><div class="eyebrow">Altlasten</div><span class="sim-tag">Kataster der belasteten Standorte</span></div>`;
+  const a=altInfo(d);
+  if(a.state==="loading") return head+`<div class="xload">Kataster der belasteten Standorte wird abgefragt …</div>`;
+  if(a.state==="nodata") return head+`<p class="sim-note">Der Kataster der belasteten Standorte ist für diese Parzelle gerade nicht abrufbar. Bitte beim kantonalen Amt für Umwelt nachfragen.${d.oerebPdf?` <a href="${esc(d.oerebPdf)}" target="_blank" rel="noopener">ÖREB-Auszug als PDF</a>.`:""}</p>`;
+  const g=d.design&&d.design.garage;
+  if(a.state==="none") return head+`<dl class="sim-grid" style="margin:0"><div class="sim-tile key"><dt>Status</dt><dd>Kein Eintrag<small>weder im kantonalen Kataster noch bei VBS, BAZL oder BAV</small></dd></div>
+      <div class="sim-tile"><dt>Mehrkosten Aushub</dt><dd>keine erwartet<small>${g?`${fmt(g.vFest)} m³ als sauberer Aushub gerechnet`:"Aushub als unverschmutzt gerechnet"}</small></dd></div>
+      <div class="sim-tile"><dt>Restrisiko</dt><dd>gering<small>Auffüllungen und Bauschutt sind trotzdem möglich</small></dd></div></dl>
+    <p class="sim-note">Kein Eintrag heisst nicht, dass der Boden sauber ist. Viele Kantone führen zusätzlich Prüfperimeter für Bodenverschiebungen (chemisch belasteter Boden, z.B. entlang von Strassen und Bahnlinien). Quelle: ÖREB-Kataster.</p>`;
+  const st=ALT_STATUS[a.worst], c=altCosts(d,g), tot=c?[c.aushub[0]+c.unters[0], c.aushub[1]+c.unters[1]]:null;
+  const rows=a.entries.map(e=>`<li><span class="k">${esc(e.kat)}</span><span class="v">${esc(e.text)}<small>${[e.typ, e.pct!=null?`${Math.round(e.pct)} % der Parzelle`:null].filter(Boolean).map(esc).join(" · ")}</small>${e.docs.length?`<small>${e.docs.map(x=>`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>`).join(" · ")}</small>`:""}</span><span class="r"><span class="flag ${ALT_STATUS[e.status][1]}">${e.status==="belastet"?"Belastet":"Abklären"}</span></span></li>`).join("");
+  const conseq=[
+    ["Bewilligung","Bauvorhaben auf belasteten Standorten brauchen eine Zustimmung der kantonalen Fachstelle (Art. 3 Altlasten-Verordnung). Das Bauen darf die Sanierung nicht erschweren."],
+    ["Aushub","Belasteter Aushub muss getrennt, untersucht und je nach Belastung auf eine Deponie Typ B oder E oder als Sonderabfall entsorgt werden."],
+    ["Kosten","Mehrkosten für belasteten Aushub ohne Sanierungspflicht trägt in der Regel die Bauherrschaft. Untersuchung und Sanierung trägt der Verursacher (Art. 32d USG)."],
+  ];
+  return head+`<dl class="sim-grid" style="margin:0">
+      <div class="sim-tile key"><dt>Status</dt><dd>${st[0]}<small>${st[2]}; ${a.entries.length} Eintrag${a.entries.length>1?"e":""}, ${Math.round(a.pct)} % der Parzelle</small></dd></div>
+      <div class="sim-tile"><dt>Betroffener Aushub</dt><dd>${c?`ca. ${fmt(c.vol)} m³`:"–"}<small>${c?"im belasteten Teil der Baugrube":"ohne Schemaprojekt nicht berechenbar"}</small></dd></div>
+      <div class="sim-tile"><dt>Mehrkosten</dt><dd>${tot?chfR(tot[0],tot[1]):"–"}<small>Untersuchung und Entsorgung, grobe Annahme</small></dd></div></dl>
+    <div class="xgrid"><div><h4>Einträge</h4><ul class="xlist">${rows}</ul></div>
+      <div><h4>Was das bedeutet</h4><ul class="xlist">${conseq.map(([k,v])=>`<li><span class="k">${k}</span><span class="v">${v}</span><span class="r"></span></li>`).join("")}</ul></div></div>
+    <p class="sim-note">Quelle: ÖREB-Kataster (kantonaler Kataster und Kataster von VBS, BAZL, BAV). Kosten: Untersuchung CHF ${fmt(ALT_COST.unters[0])}–${fmt(ALT_COST.unters[1])}, Mehrkosten Entsorgung CHF ${ALT_COST.m3[0]}–${ALT_COST.m3[1]} pro m³ für ${Math.round(ALT_COST.share[0]*100)}–100 % des betroffenen Aushubs (Annahmen). Massgebend ist eine Altlastenuntersuchung.${d.oerebPdf?` <a href="${esc(d.oerebPdf)}" target="_blank" rel="noopener">ÖREB-Auszug als PDF</a>.`:""}</p>`;
+}
+
+/* ---------- Ertragsrechnung: Anlagekosten, Mieteinnahmen, Rendite ----------
+   Mieten: Bestandsmiete pro m² und Kanton (BFS 2024: CH 17.8, ZH 21.3, ZG 21.5, GE 21.1 CHF/m²/Monat;
+   übrige Kantone aus den BFS-Durchschnittsmieten pro Kanton abgeleitet), mal 1.35 für Neubau-Angebotsmieten,
+   innerhalb des Kantons über das Preisniveau der Gemeinde bzw. die ÖV-Güteklasse angepasst (Elastizität 0.8).
+   Kostenanteile nach BKP: Gewichtung Baupreisindex Neubau Mehrfamilienhaus (BFS, Stadt Bern). */
+const RENT_KT={ZH:256,BE:192,LU:212,UR:181,SZ:242,OW:211,NW:232,GL:182,ZG:258,FR:193,SO:186,BS:208,BL:221,SH:189,AR:188,AI:203,
+  SG:194,GR:193,AG:215,TG:197,TI:185,VD:215,VS:178,NE:156,GE:253,JU:149};
+const MIETE_NEUBAU=1.35, LEERSTAND=0.02, BETRIEB=0.15, PP_KAUF=35000;
+const BKP=[
+  {id:"aushub",bkp:"20",name:"Baugrube und Aushub",firms:"Tiefbau, Aushub, Spezialtiefbau"},
+  {id:"baumeister",bkp:"21",w:32.5,name:"Baumeister und Rohbau",firms:"Baumeister, Gerüst, Montagebau"},
+  {id:"huelle",bkp:"22",w:10.3,name:"Fenster, Fassade, Dach",firms:"Fensterbau, Spengler, Bedachung, Fassadenbau"},
+  {id:"elektro",bkp:"23",w:3.4,name:"Elektroanlagen",firms:"Elektroinstallation, Photovoltaik"},
+  {id:"hlk",bkp:"24",w:5.1,name:"Heizung, Lüftung, Klima",firms:"Wärmepumpe, Lüftung, Gebäudeautomation"},
+  {id:"sanitaer",bkp:"25",w:9.4,name:"Sanitär und Küchen",firms:"Sanitärinstallation, Küchenbau"},
+  {id:"lift",bkp:"26",w:2.1,name:"Lift",firms:"Aufzugsbau"},
+  {id:"ausbau1",bkp:"27",w:10.5,name:"Ausbau 1",firms:"Gipser, Schreiner, Metallbau, Schliessanlagen"},
+  {id:"ausbau2",bkp:"28",w:6.7,name:"Ausbau 2",firms:"Bodenbeläge, Plattenleger, Maler, Baureinigung"},
+  {id:"planer",bkp:"29",w:9.2,name:"Architektur und Fachplanung",firms:"Architektur, Bauingenieur, HLKSE-Planung"},
+  {id:"umgebung",bkp:"4",w:3.4,name:"Umgebung",firms:"Gartenbau, Belagsarbeiten"},
+];
+const BKP2_SUM=BKP.filter(b=>b.w&&b.bkp!=="4").reduce((t,b)=>t+b.w,0);   // 89.2, ohne Baugrube
+const BKP_NK=5.9/BKP2_SUM;                                             // Baunebenkosten (BKP 5)
+const invOverride={};
+const mid=a=>(a[0]+a[1])/2;
+function rentM2(d){
+  const kt=RENT_KT[d.kanton]; if(!kt) return null;
+  const b=basePrice(d), ref=(PRICE_KT[d.kanton]||12110)*NEUBAU;
+  const f=b?Math.pow(b.price/ref,0.8):1;
+  return Math.round(kt*MIETE_NEUBAU*f/5)*5;
+}
+function ppMiete(d){ const b=basePrice(d), f=b?Math.pow(b.price/(12110*NEUBAU),0.5):1; return Math.max(100,Math.min(260,Math.round(150*f/10)*10)); }
+function invest(d){
+  const sim=d.sim, v=valuation(d,sim); if(!v||v.noPrice||!v.kosten) return null;
+  const o=invOverride[valKey(d)]||{};
+  const D=d.design, m=D&&D.metrics, g=D&&D.garage;
+  const gf=m?m.gf:sim.gfHi, nf=m?m.nf:Math.round(sim.gfHi*NUTZFLAECHE), units=m?m.units:sim.units[1];
+  const kosten=mid(v.kosten), bau=gf*kosten;
+  const gc=g?garageCosts(d,g):null, gar=gc?mid(gc.total):0;
+  const umg=bau*3.4/BKP2_SUM, nk=bau*BKP_NK;
+  const landRes=Math.max(0,mid(v.land));
+  const land=o.land!=null?o.land:landRes;
+  const anlage=land+bau+gar+umg+nk+(v.rueck||0);
+  const rent=o.miete||rentM2(d)||0, pp=g&&g.garage?g.stallsNet:0, ppm=ppMiete(d);
+  const ertragW=nf*rent, ertragP=pp*ppm*12, soll=ertragW+ertragP;
+  const leer=soll*LEERSTAND, betr=soll*BETRIEB, netto=soll-leer-betr;
+  const erl=nf*v.price+pp*PP_KAUF, gewinn=erl-anlage;
+  return {gf,nf,units,kosten,bau,gar,gc,umg,nk,land,landRes,landCustom:o.land!=null,rueck:v.rueck||0,anlage,
+    rent,rentCustom:!!o.miete,pp,ppm,ertragW,ertragP,soll,leer,betr,netto,brutto:soll/anlage,nettoR:netto/anlage,
+    erl,gewinn,marge:gewinn/erl,price:v.price,fromDesign:!!m};
+}
+const pctF=(x,dg=1)=>(x*100).toFixed(dg).replace(".",",")+" %";
+function investBodyHtml(d){
+  const I=invest(d);
+  if(!I) return `<p class="sim-note">Für die Ertragsrechnung braucht es eine Bebauungssimulation und ein Preisniveau.</p>`;
+  const li=(k,v,r,s)=>`<li><span class="k">${k}</span><span class="v">${v}${s?`<small>${s}</small>`:""}</span><span class="r">${r||""}</span></li>`;
+  const kost=[
+    li("Land", "CHF "+chf(I.land), "", I.landCustom?"Ihr Wert":"Residualwert (Mitte), bei eigenem Land 0 eintragen"),
+    li("Gebäude", "CHF "+chf(I.bau), "BKP 2", `${fmt(I.gf)} m² × CHF ${fmt(Math.round(I.kosten/50)*50)}, inkl. Honorare`),
+    I.gar?li(I.gc&&I.pp?"Tiefgarage":"Aushub UG", "CHF "+chf(I.gar), "", I.pp?`${I.pp} Plätze inkl. Aushub${I.gc.alt?", Altlasten":""}${I.gc.gw?", Grundwasser":""}`:"Untergeschoss"):"",
+    li("Umgebung", "CHF "+chf(I.umg), "BKP 4", ""),
+    li("Baunebenkosten", "CHF "+chf(I.nk), "BKP 5", "Bewilligungen, Versicherungen, Bauzinsen"),
+    I.rueck?li("Rückbau", "CHF "+chf(I.rueck), "", "bestehendes Gebäude"):"",
+    li("<b>Anlagekosten</b>", "<b>CHF "+chf(I.anlage)+"</b>", "", ""),
+  ].join("");
+  const ertr=[
+    li("Wohnungen", "CHF "+chf(I.ertragW)+" /Jahr", "", `${I.units} Wohnungen, ${fmt(I.nf)} m² × CHF ${fmt(I.rent)}/m² und Jahr${I.rentCustom?" (Ihr Wert)":""}`),
+    I.pp?li("Parkplätze", "CHF "+chf(I.ertragP)+" /Jahr", "", `${I.pp} × CHF ${I.ppm} pro Monat`):"",
+    li("Leerstand", "− CHF "+chf(I.leer), "", `${Math.round(LEERSTAND*100)} % Mietausfall`),
+    li("Betrieb", "− CHF "+chf(I.betr), "", `${Math.round(BETRIEB*100)} % für Unterhalt, Verwaltung, Rückstellungen`),
+    li("<b>Nettoertrag</b>", "<b>CHF "+chf(I.netto)+" /Jahr</b>", "", ""),
+    li("Alternative Verkauf", "CHF "+chf(I.erl), I.gewinn>0?`<span class="flag ok">${pctF(I.marge)}</span>`:`<span class="flag warn">Verlust</span>`, `Stockwerkeigentum zu CHF ${fmt(Math.round(I.price/100)*100)}/m²${I.pp?`, Plätze à CHF ${fmt(PP_KAUF)}`:""}, Gewinn CHF ${chf(I.gewinn)}`),
+  ].join("");
+  return `<dl class="sim-grid g4" style="margin:0">
+      <div class="sim-tile"><dt>Anlagekosten</dt><dd>CHF ${chf(I.anlage)}<small>Land, Bau, Garage, Nebenkosten</small></dd></div>
+      <div class="sim-tile"><dt>Mietertrag</dt><dd>CHF ${chf(I.soll)}<small>pro Jahr bei Vollvermietung</small></dd></div>
+      <div class="sim-tile key"><dt>Bruttorendite</dt><dd>${pctF(I.brutto,2)}<small>Mietertrag / Anlagekosten</small></dd></div>
+      <div class="sim-tile"><dt>Nettorendite</dt><dd>${pctF(I.nettoR,2)}<small>nach Leerstand und Betrieb</small></dd></div>
+    </dl>
+    <div class="xgrid"><div><h4>Kosten</h4><ul class="xlist">${kost}</ul></div><div><h4>Einnahmen</h4><ul class="xlist">${ertr}</ul></div></div>
+    <p class="sim-note">${I.fromDesign?"Flächen aus dem Schemaprojekt.":"Flächen aus der Simulation."} Miete: Neubau-Angebotsmiete geschätzt aus BFS-Mietpreisen pro Kanton (2024) mal ${String(MIETE_NEUBAU).replace(".",",")}, angepasst an das Preisniveau der Gemeinde. Kostenanteile nach BKP gemäss Baupreisindex. Grobe Schätzung, keine Wirtschaftlichkeitsberechnung.</p>`;
+}
+function investBlock(d){
+  if(!d.parcel||!d.parcelArea||!d.sim||!d.sim.foot) return "";
+  const o=invOverride[valKey(d)]||{}, r=rentM2(d);
+  return `<section class="sim val" id="investSection">
+    <div class="sim-head"><div class="eyebrow">Kosten und Ertrag</div><span class="sim-tag" id="invTag">${o.miete||o.land!=null?"Mit Ihren Werten":"Vermieten oder verkaufen"}</span></div>
+    <div id="invBody">${investBodyHtml(d)}</div>
+    <button type="button" class="sim-edit" id="invEdit">Werte anpassen</button>
+    <form class="sim-form" id="invForm" hidden novalidate>
+      <div><label for="invMiete">Miete (CHF/m² Wohnfläche und Jahr)</label><input id="invMiete" inputmode="numeric" placeholder="${r?fmt(r):"z.B. 320"}" value="${o.miete||""}"></div>
+      <div><label for="invLand">Landkosten (CHF, 0 bei eigenem Land)</label><input id="invLand" inputmode="numeric" placeholder="Residualwert" value="${o.land!=null?o.land:""}"></div>
+      <button type="button" class="sim-reset" id="invReset">Standardwerte</button>
+      <p class="hint2">Leere Felder verwenden die Standardwerte. Baukosten und Verkaufspreis passen Sie oben beim Landwert an.</p>
+    </form>
+  </section>`;
+}
+function wireInvest(d){
+  const form=document.getElementById("invForm"); if(!form) return;
+  const edit=document.getElementById("invEdit");
+  edit.addEventListener("click",()=>{ form.hidden=false; edit.hidden=true; document.getElementById("invMiete").focus(); fitFrame(); });
+  let t;
+  const read=()=>{
+    const num=v=>{ const n=Number(String(v).replace(/['’\s]/g,"").replace(",",".")); return String(v).trim()!==""&&isFinite(n)?n:null; };
+    const m=num(form.invMiete.value), l=num(form.invLand.value), o={};
+    if(m!=null&&m>=60&&m<=1500) o.miete=m;
+    if(l!=null&&l>=0&&l<=1e9) o.land=l;
+    if(Object.keys(o).length) invOverride[valKey(d)]=o; else delete invOverride[valKey(d)];
+    updateBiz(d);
+  };
+  form.addEventListener("input",()=>{ clearTimeout(t); t=setTimeout(read,200); });
+  document.getElementById("invReset").addEventListener("click",()=>{ form.invMiete.value=""; form.invLand.value=""; read(); });
+}
+
+/* ---------- Finanzierung: Hypothek und Baukredit ----------
+   Renditeliegenschaft: Belehnung bis 75 %, innert 10 Jahren auf 65 % amortisieren; Tragbarkeit mit kalkulatorisch 5 %
+   (VermögensZentrum). Aktueller Zins Richtwert 10-jährige Festhypothek ca. 1,4–2,2 % (Comparis, Sept. 2026). */
+const FIN={belehnung:0.75, ziel:0.65, kalk:0.05, zins:0.018};
+function finCalc(d, ekIn){
+  const I=invest(d); if(!I) return null;
+  const ek=ekIn!=null?ekIn:Math.round(I.anlage*0.30/10000)*10000;
+  const fk=Math.max(0,I.anlage-ek), bel=fk/I.anlage;
+  const amort=Math.max(0,(fk-FIN.ziel*I.anlage)/10);
+  const kalk=I.netto-fk*FIN.kalk-amort, cash=I.netto-fk*FIN.zins-amort;
+  return {I,ek,fk,bel,amort,kalk,cash,ekR:ek>0?(I.netto-fk*FIN.zins)/ek:null, ok:bel<=FIN.belehnung+1e-9, tragbar:kalk>=0};
+}
+function finBodyHtml(d){
+  const f=finCalc(d, finEk(d)); if(!f) return "";
+  return `<ul class="xlist">
+    <li><span class="k">Finanzierung</span><span class="v">Eigenmittel CHF ${chf(f.ek)} · Hypothek CHF ${chf(f.fk)}<small>Belehnung ${pctF(f.bel,0)} der Anlagekosten, Banken finanzieren Renditeobjekte meist bis 75 %</small></span><span class="r"><span class="flag ${f.ok?"ok":"warn"}">${f.ok?"Gut":"Zu hoch"}</span></span></li>
+    <li><span class="k">Tragbarkeit</span><span class="v">${f.tragbar?"Nettoertrag deckt Zins und Amortisation":"Nettoertrag deckt Zins und Amortisation nicht"}<small>Bankrechnung mit 5 % kalkulatorischem Zins${f.amort?` und CHF ${chf(f.amort)} Amortisation pro Jahr`:""}: Überschuss CHF ${chf(f.kalk)}</small></span><span class="r"><span class="flag ${f.tragbar?"ok":"warn"}">${f.tragbar?"Tragbar":"Kritisch"}</span></span></li>
+    <li><span class="k">Cashflow</span><span class="v">CHF ${chf(f.cash)} pro Jahr<small>beim heutigen Zins von ca. ${pctF(FIN.zins)}${f.ekR!=null?`, Eigenkapitalrendite ${pctF(f.ekR)}`:""}</small></span><span class="r"></span></li>
+  </ul>`;
+}
+let finEkVal=null;
+function finEk(d){ return finEkVal; }
+function finBlock(d){
+  const f=finCalc(d,null); if(!f) return "";
+  return `<form class="leadbox" id="finForm" novalidate style="position:relative">
+    <div><div class="eyebrow">Finanzierung</div><h3>Hypothek und Baukredit anfragen</h3></div>
+    <p>Wir holen für Sie Angebote von bis zu drei Banken und Versicherungen ein. Die Zahlen aus dieser Auswertung sind schon eingetragen.</p>
+    <div id="finBody">${finBodyHtml(d)}</div>
+    <div class="fld"><label>Ich brauche</label><div class="radio">
+      ${["Baukredit und Hypothek","Nur Hypothek","Nur Baukredit"].map((t,i)=>`<label><input type="radio" name="art" value="${t}" ${i===0?"checked":""}>${t}</label>`).join("")}</div></div>
+    <div class="fld"><label>Vorhaben</label><div class="radio">
+      ${["Neubau vermieten","Neubau verkaufen (Stockwerkeigentum)","Selbst bewohnen und vermieten"].map((t,i)=>`<label><input type="radio" name="vorhaben" value="${t}" ${i===0?"checked":""}>${t}</label>`).join("")}</div></div>
+    <div class="grid2">
+      <div class="fld"><label for="finEk">Eigenmittel (CHF)</label><input id="finEk" name="ek" inputmode="numeric" placeholder="${fmt(f.ek)}"></div>
+      <div class="fld"><label for="finStart">Baustart</label><select id="finStart" name="start">${["In den nächsten 6 Monaten","In 6 bis 12 Monaten","In 1 bis 2 Jahren","Noch offen"].map(t=>`<option>${t}</option>`).join("")}</select></div>
+    </div>
+    ${contactFields("fin")}
+    <label class="consent"><input type="checkbox" name="consent" required> Ich bin einverstanden, dass TTMS Schweiz AG meine Angaben für Offerten an bis zu drei Finanzierungspartner weitergibt.</label>
+    <div class="err" id="finErr" hidden></div>
+    <div><button class="btn" type="submit">Finanzierung anfragen</button></div>
+  </form>`;
+}
+function contactFields(p){
+  return `<div class="grid2">
+      <div class="fld"><label for="${p}Name">Name</label><input id="${p}Name" name="fullname" autocomplete="name" required></div>
+      <div class="fld"><label for="${p}Phone">Telefon</label><input id="${p}Phone" name="phone" type="tel" autocomplete="tel" placeholder="+41 …"></div>
+    </div>
+    <div class="fld"><label for="${p}Mail">E-Mail</label><input id="${p}Mail" name="email" type="email" autocomplete="email" required></div>
+    <div aria-hidden="true" style="position:absolute;left:-9999px"><label for="${p}Web">Website</label><input id="${p}Web" name="website" tabindex="-1" autocomplete="off"></div>`;
+}
+
+/* ---------- Gewerke nach BKP und Offertanfragen ---------- */
+function gewerke(d){
+  const I=invest(d); if(!I) return null;
+  const D=d.design, m=D&&D.metrics, g=D&&D.garage, gc=I.gc;
+  const out=[];
+  for(const b of BKP){
+    let amt=0, menge="";
+    if(b.id==="aushub"){
+      if(!g) continue;
+      const alt=gc&&gc.alt?mid(gc.alt):0;
+      amt=mid(gc.aushub)+(gc.shoring?mid(gc.shoring):0)+alt;
+      menge=`${fmt(g.vFest)} m³ fest, ca. ${fmt(g.trucks)} Fahrten${g.shoringArea?`, Baugrubenabschluss ${fmt(g.shoringArea)} m²`:""}${alt?", belasteter Aushub":""}`;
+    } else if(b.id==="umgebung"){ amt=I.umg; menge=`ca. ${fmt(Math.max(0,Math.round(d.parcelArea-(m?m.roof:d.sim.footArea))))} m² Umgebungsfläche`; }
+    else {
+      if(b.id==="lift"&&m&&!m.lift) continue;
+      amt=I.bau*b.w/BKP2_SUM;
+      if(b.id==="baumeister"&&gc&&gc.pp){ amt+=mid(gc.pp)-mid(gc.aushub)+(gc.gw?mid(gc.gw):0); }
+      const ug=m?m.ugArea:0;
+      menge={baumeister:`${fmt(I.gf)} m² Geschossfläche${ug?` + ${fmt(ug)} m² Untergeschoss`:""}${I.pp?`, Tiefgarage ${I.pp} Plätze`:""}`,
+        huelle:m?`Fassade ca. ${fmt(m.facade)} m², Dach ${fmt(m.roof)} m², Fenster ca. ${fmt(Math.round(I.nf*0.2))} m²`:`Fenster ca. ${fmt(Math.round(I.nf*0.2))} m²`,
+        elektro:`${I.units} Wohnungen${d.solar?`, PV-Potenzial ${fmt(d.solar)} kWh/Jahr`:""}`,
+        hlk:`${fmt(I.nf)} m² Wohnfläche, ${I.units} Wohnungen`,
+        sanitaer:`${I.units} Küchen, ca. ${Math.ceil(I.units*1.5)} Nasszellen`,
+        lift:m?`1 Lift, ${m.floors+(g&&g.garage?1:0)} Haltestellen`:"1 Lift",
+        ausbau1:`${fmt(I.nf)} m² Wohnfläche`, ausbau2:`${fmt(I.nf)} m² Wohnfläche`,
+        planer:"Honorare nach SIA 102, 103, 108"}[b.id]||"";
+    }
+    out.push({...b, amt, menge});
+  }
+  const total=out.reduce((t,x)=>t+x.amt,0);
+  out.forEach(x=>x.share=x.amt/total);
+  return {list:out,total};
+}
+function gewerkeListHtml(d, sel){
+  const G=gewerke(d); if(!G) return "";
+  return G.list.map(x=>`<li><label class="gw"><input type="checkbox" name="gw" value="${x.id}" ${sel.has(x.id)?"checked":""}>
+      <span class="k">BKP ${x.bkp}</span><span class="v"><b>${esc(x.name)}</b> <span class="gw-f">${esc(x.firms)}</span><small>${esc(x.menge)}</small></span>
+      <span class="r">CHF ${chf(Math.round(x.amt/5000)*5000)}<small>${Math.round(x.share*1000)/10} %</small></span></label></li>`).join("")
+    +`<li class="gw-tot"><span></span><span class="k">Total</span><span class="v"><b>CHF ${chf(G.total)}</b><small>ohne Land und Baunebenkosten</small></span><span class="r"></span></li>`;
+}
+const gwSel=new Set();
+function gewerkeBlock(d){
+  if(!gewerke(d)) return "";
+  return `<form class="leadbox" id="gwForm" novalidate style="position:relative">
+    <div><div class="eyebrow">Offerten einholen</div><h3>Kosten nach Gewerk</h3></div>
+    <p>Wählen Sie die Gewerke, für die Sie Offerten möchten. Wir leiten die Anfrage mit Mengen und Plänen an bis zu drei geprüfte Unternehmen pro Gewerk weiter.</p>
+    <ul class="xlist gwlist" id="gwList">${gewerkeListHtml(d,gwSel)}</ul>
+    <div><button type="button" class="sim-reset" id="gwAll">Alle wählen</button></div>
+    <div class="grid2">
+      <div class="fld"><label for="gwStand">Projektstand</label><select id="gwStand" name="stand">${["Idee, noch kein Projekt","Vorprojekt","Baueingabe eingereicht","Baubewilligung liegt vor"].map(t=>`<option>${t}</option>`).join("")}</select></div>
+      <div class="fld"><label for="gwStart">Baustart</label><select id="gwStart" name="start">${["In den nächsten 6 Monaten","In 6 bis 12 Monaten","In 1 bis 2 Jahren","Noch offen"].map(t=>`<option>${t}</option>`).join("")}</select></div>
+    </div>
+    ${contactFields("gw")}
+    <label class="consent"><input type="checkbox" name="consent" required> Ich bin einverstanden, dass TTMS Schweiz AG meine Angaben und die Mengen an bis zu drei Unternehmen pro gewähltem Gewerk weitergibt.</label>
+    <div class="err" id="gwErr" hidden></div>
+    <div><button class="btn" type="submit">Offerten anfragen</button></div>
+    <div class="fine">Beträge aus der Kostenschätzung, Gewichtung nach Baukostenplan (BKP). Unverbindlich, ±25 %.</div>
+  </form>`;
+}
+
+/* ---------- gemeinsames Senden und Aktualisieren ---------- */
+function leadBase(d, f){
+  return { name:f.fullname.value.trim(), email:f.email.value.trim(), phone:f.phone.value.trim(), website:f.website.value,
+    address:d.label, egrid:d.egrid||null, parzelle:d.parzelle||null, gemeinde:d.gemeinde||null, kanton:d.kanton||null,
+    geoportalUrl:d.geoportal||null, ...(()=>{ const e2=evaluate(d,d.sim); return {score:e2.score, level:e2.level}; })(),
+    demo:!!d.demo, facts:leadFacts(d), consent:true, page:document.referrer||location.href };
+}
+async function sendLead(d, form, errEl, btnText, payload, okHtml){
+  const f=form, err=document.getElementById(errEl);
+  if(!f.fullname.value.trim()||!/^\S+@\S+\.\S+$/.test(f.email.value)){ err.textContent="Bitte Name und eine gültige E-Mail-Adresse angeben."; err.hidden=false; fitFrame(); return; }
+  if(f.consent&&!f.consent.checked){ err.textContent="Bitte bestätigen Sie die Weitergabe Ihrer Angaben."; err.hidden=false; fitFrame(); return; }
+  const btn=f.querySelector("button[type=submit]"); btn.disabled=true; btn.textContent="Wird gesendet …"; err.hidden=true;
+  try{
+    const r=await fetch("/api/lead",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
+    if(!r.ok) throw new Error(r.status);
+    f.outerHTML=`<div class="leadbox ok">${okHtml}</div>`;
+    parent.postMessage({type:"grundstueck-check:lead",kind:payload.type,score:payload.score},"*");
+  }catch(x){
+    err.textContent="Die Anfrage konnte nicht gesendet werden. Bitte versuchen Sie es nochmals oder rufen Sie uns an.";
+    err.hidden=false; btn.disabled=false; btn.textContent=btnText;
+  }
+  fitFrame();
+}
+function wireBiz(d){
+  wireInvest(d);
+  const ff=document.getElementById("finForm");
+  if(ff){
+    let t; ff.ek.addEventListener("input",()=>{ clearTimeout(t); t=setTimeout(()=>{
+      const n=Number(String(ff.ek.value).replace(/['’\s]/g,"")); finEkVal=ff.ek.value.trim()&&isFinite(n)&&n>=0?n:null;
+      const b=document.getElementById("finBody"); if(b) b.innerHTML=finBodyHtml(d); },200); });
+    ff.addEventListener("submit",e=>{ e.preventDefault();
+      const f=finCalc(d, finEkVal), I=f.I;
+      const p={...leadBase(d,ff), type:"finanzierung", finanz:{art:ff.art.value, vorhaben:ff.vorhaben.value, start:ff.start.value,
+        anlage:Math.round(I.anlage), eigenmittel:Math.round(f.ek), hypothek:Math.round(f.fk), belehnung:pctF(f.bel,0),
+        mietertrag:Math.round(I.soll), nettoertrag:Math.round(I.netto), bruttorendite:pctF(I.brutto,2), tragbar:f.tragbar?"ja (5 % kalkulatorisch)":"kritisch",
+        verkauf:Math.round(I.erl)}};
+      sendLead(d, ff, "finErr", "Finanzierung anfragen", p, `<h3>Danke, ${esc(p.name.split(" ")[0])}.</h3><p>Wir holen Finanzierungsangebote für ${esc(d.label)} ein und melden uns innert drei Arbeitstagen.</p>`);
+    });
+  }
+  const gf=document.getElementById("gwForm");
+  if(gf){
+    gf.addEventListener("change",e=>{ if(e.target.name==="gw"){ e.target.checked?gwSel.add(e.target.value):gwSel.delete(e.target.value); } });
+    document.getElementById("gwAll").addEventListener("click",()=>{ gf.querySelectorAll('input[name=gw]').forEach(c=>{ c.checked=true; gwSel.add(c.value); }); });
+    gf.addEventListener("submit",e=>{ e.preventDefault();
+      const err=document.getElementById("gwErr");
+      if(!gwSel.size){ err.textContent="Bitte mindestens ein Gewerk wählen."; err.hidden=false; fitFrame(); return; }
+      const G=gewerke(d);
+      const p={...leadBase(d,gf), type:"offerte", offerte:{stand:gf.stand.value, start:gf.start.value,
+        gewerke:G.list.filter(x=>gwSel.has(x.id)).map(x=>({id:x.id, bkp:x.bkp, name:x.name, betrag:Math.round(x.amt/1000)*1000, menge:x.menge}))}};
+      sendLead(d, gf, "gwErr", "Offerten anfragen", p, `<h3>Danke, ${esc(p.name.split(" ")[0])}.</h3><p>Ihre Anfrage für ${p.offerte.gewerke.length} Gewerk${p.offerte.gewerke.length>1?"e":""} geht an passende Unternehmen. Sie erhalten die Offerten direkt.</p>`);
+    });
+  }
+}
+/* Nach Änderungen an Simulation, Preisen oder Schemaprojekt nur die Inhalte neu zeichnen (Formulare bleiben) */
+function updateBiz(d){
+  const a=document.getElementById("altSection"); if(a) a.innerHTML=altHtml(d);
+  const ib=document.getElementById("invBody"); if(ib) ib.innerHTML=investBodyHtml(d);
+  const tag=document.getElementById("invTag"); if(tag){ const o=invOverride[valKey(d)]||{}; tag.textContent=o.miete||o.land!=null?"Mit Ihren Werten":"Vermieten oder verkaufen"; }
+  const fb=document.getElementById("finBody"); if(fb) fb.innerHTML=finBodyHtml(d);
+  const ek=document.getElementById("finEk"); if(ek){ const f=finCalc(d,null); if(f) ek.placeholder=fmt(f.ek); }
+  const gl=document.getElementById("gwList"); if(gl) gl.innerHTML=gewerkeListHtml(d,gwSel);
+  fitFrame();
 }
 
 /* ---------- BIM-Export (IFC4) des simulierten Volumens und Vorschau im Browser ---------- */
@@ -1184,6 +1560,21 @@ function updateSim(d){
   fitFrame();
 }
 
+function leadFacts(d){
+  return {parcelArea:d.parcelArea||null, year:d.year||d.yearApprox||null, klasse:d.klasse||null, floors:d.floors||null,
+             zone:d.zone||null, oev:d.oev||null, heat:d.heat||null, solar:d.solar||null,
+             reserve:simText(d.sim), gfMax:d.sim&&d.sim.gfHi?rangeFmt(d.sim.gfLo,d.sim.gfHi," m²"):null,
+             units:d.sim&&d.sim.units?rangeFmt(d.sim.units[0],d.sim.units[1]):null,
+             landValue:valText(valuation(d,d.sim)),
+             oerebZone:d.oerebZone?d.oerebZone.text:null,
+             altlasten:altText(d),
+             lwz:d.x?.lwz?.gemeinde?.length?`${pct2(d.x.lwz.gemeinde.at(-1).rate)} (${d.x.lwz.gemeinde.at(-1).year})`:null,
+             oevZuerich:d.x?.oev?.targets?.length?d.x.oev.targets.map(t=>`${t.name} ${t.min!=null?t.min+" Min.":"–"}`).join(", "):null,
+             simRules:d.sim?`${d.sim.rules.custom?"Werte angepasst":"Standardwerte"}: Abstand ${d.sim.rules.abstand} m, ${d.sim.rules.geschosse} Geschosse, AZ ${d.sim.rules.az.map(num2).join("–")}`:null,
+             ...(()=>{ const I=invest(d); return I?{anlage:"CHF "+chf(I.anlage), mietertrag:"CHF "+chf(I.soll)+" pro Jahr", rendite:`brutto ${pctF(I.brutto,2)}, netto ${pctF(I.nettoR,2)}`}:{}; })(),
+             ...(()=>{ const g=d.design&&d.design.garage; if(!g) return {}; const c=garageCosts(d,g);
+               return {garage:`${g.garage?g.stallsNet+" Plätze, ":""}Aushub ${fmt(g.vFest)} m³, CHF ${chfRange(c.total[0],c.total[1])}`}; })()};
+}
 function renderLead(d, ev){
   document.getElementById("leadWrap").innerHTML = `
   <form class="leadbox" id="leadForm" novalidate style="position:relative">
@@ -1218,16 +1609,7 @@ function renderLead(d, ev){
       address:d.label, egrid:d.egrid||null, parzelle:d.parzelle||null, gemeinde:d.gemeinde||null,
       kanton:d.kanton||null, geoportalUrl:d.geoportal||null,
       ...(()=>{ const e2=evaluate(d,d.sim); return {score:e2.score, level:e2.level}; })(), demo:!!d.demo,
-      facts:{parcelArea:d.parcelArea||null, year:d.year||d.yearApprox||null, klasse:d.klasse||null, floors:d.floors||null,
-             zone:d.zone||null, oev:d.oev||null, heat:d.heat||null, solar:d.solar||null,
-             reserve:simText(d.sim), gfMax:d.sim&&d.sim.gfHi?rangeFmt(d.sim.gfLo,d.sim.gfHi," m²"):null,
-             units:d.sim&&d.sim.units?rangeFmt(d.sim.units[0],d.sim.units[1]):null,
-             landValue:valText(valuation(d,d.sim)),
-             oerebZone:d.oerebZone?d.oerebZone.text:null,
-             altlasten:d.x?.oereb ? (d.x.oereb.items.some(i=>/BelasteteStandorte/i.test(i.theme||""))?"Eintrag vorhanden":d.x.oereb.notConcerned.some(c=>/BelasteteStandorte/i.test(c))?"kein Eintrag":null) : null,
-             lwz:d.x?.lwz?.gemeinde?.length?`${pct2(d.x.lwz.gemeinde.at(-1).rate)} (${d.x.lwz.gemeinde.at(-1).year})`:null,
-             oevZuerich:d.x?.oev?.targets?.length?d.x.oev.targets.map(t=>`${t.name} ${t.min!=null?t.min+" Min.":"–"}`).join(", "):null,
-             simRules:d.sim?`${d.sim.rules.custom?"Werte angepasst":"Standardwerte"}: Abstand ${d.sim.rules.abstand} m, ${d.sim.rules.geschosse} Geschosse, AZ ${d.sim.rules.az.map(num2).join("–")}`:null},
+      facts:leadFacts(d), type:"grundstueck",
       page:document.referrer||location.href
     };
     try{

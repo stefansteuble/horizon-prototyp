@@ -327,6 +327,8 @@
     const unitCount = spaces.length;
     return {
       storeys, elements, garage: garageInfo,
+      metrics: { L, D, floors, perFloor: units, units: unitCount, nf: Math.round(spaces.reduce((t, x) => t + x, 0)), gf, lift: hasLift,
+        roof: Math.round(L * D), facade: Math.round(2 * (L + D) * floors * H_FLOOR), ugArea: Math.round(L * D) },
       summary: {
         "Gebäude (L × T) m": `${(Math.round(L * 10) / 10).toString().replace(".", ",")} × ${(Math.round(D * 10) / 10).toString().replace(".", ",")}`,
         "Geschosse über Terrain": floors, "Geschossfläche oberirdisch m2": gf, "Wohnungen": unitCount, "Wohnfläche total m2": spaces.reduce((t, x) => t + x, 0),

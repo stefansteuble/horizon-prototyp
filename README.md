@@ -109,6 +109,24 @@ Landwert = Verkaufserlös Neubau − Baukosten − Nebenkosten und Entwicklermar
 
 Unverbindlicher Richtwert, keine Verkehrswertschätzung. Für den Echtbetrieb empfiehlt sich eine Bewertungs-API (IAZI, Wüest Partner, PriceHubble).
 
+## Tiefgarage, Altlasten, Ertrag, Finanzierung, Gewerke
+
+- **Tiefgarage und Aushub**: Rampe nach üblichen VSS-/Bauordnungswerten (Vorplatz 5 m ≤ 5 %, Ausrundungen, max. 12 % ungedeckt / 15 % gedeckt, 3,5 m einspurig bis 30 Plätze), Aushub mit Böschung 1:1 oder Baugrubenabschluss, Kosten CHF 40'000–70'000 pro Platz (Neho), Aushub CHF 50–90/m³ (DaiBau).
+- **Altlasten**: Kataster der belasteten Standorte aus dem ÖREB-Auszug (kantonal sowie VBS, BAZL, BAV), Status, Flächenanteil, Standortblatt. Mehrkosten belasteter Aushub CHF 80–300/m³ und Untersuchung CHF 15'000–60'000 (Annahmen).
+- **Kosten und Ertrag**: Anlagekosten (Land als Residualwert oder eigener Wert, Gebäude BKP 2, Tiefgarage, Umgebung BKP 4, Baunebenkosten BKP 5, Rückbau), Mietertrag mit Neubau-Angebotsmiete (BFS-Mieten pro Kanton 2024 × 1,35, an das Preisniveau der Gemeinde angepasst), Leerstand 2 %, Betrieb 15 %, Brutto- und Nettorendite, Vergleich Verkauf als Stockwerkeigentum.
+- **Finanzierung**: Belehnung (Renditeobjekt bis 75 %, Ziel 65 % nach 10 Jahren), Tragbarkeit mit 5 % kalkulatorisch, Cashflow mit ca. 1,8 %. Formular als Lead-Typ `finanzierung`.
+- **Gewerke**: Baukosten nach BKP (Gewichtung Baupreisindex Neubau MFH) mit Mengen pro Gewerk. Auswahl und Formular als Lead-Typ `offerte`.
+
+### Leads weiterleiten (Plattform)
+
+Jede Anfrage hat einen `type` (`grundstueck`, `finanzierung`, `offerte`) und geht immer an `LEAD_EMAIL_TO`. Mit der Variablen `LEAD_ROUTES` (JSON) gehen Finanzierungs- und Offertanfragen zusätzlich direkt an Partner, sobald der Interessent der Weitergabe zugestimmt hat:
+
+```json
+{"finanzierung":"hypotheken@bank.ch","aushub":"offerten@tiefbau.ch","sanitaer":"a@sanitaer.ch,b@sanitaer.ch"}
+```
+
+Gewerk-IDs: aushub, baumeister, huelle, elektro, hlk, sanitaer, lift, ausbau1, ausbau2, planer, umgebung. Für Empfänger ausserhalb des eigenen Resend-Kontos braucht es in Resend eine verifizierte Absender-Domain (`LEAD_EMAIL_FROM`).
+
 ## Anpassen
 
 - Firmenname: `Prototyp von TTMS Schweiz AG` in `public/index.html`
