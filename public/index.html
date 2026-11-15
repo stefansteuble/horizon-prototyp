@@ -155,7 +155,33 @@ footer a{color:inherit}
 .ifc-btn:hover{background:var(--sim-soft)}
 .ifc-btn:disabled{opacity:.7;cursor:progress}
 .ifc-btn b{font-family:var(--f-mono);font-size:11px;letter-spacing:.06em;border:1px solid currentColor;border-radius:4px;padding:1px 5px}
-.sim-actions small{color:var(--muted);font-size:12px}
+.sim-actions small{color:var(--muted);font-size:12px;flex-basis:100%}
+.ifc-btn[aria-expanded="true"]{background:var(--sim);color:#fff;border-color:var(--sim)}
+.ifc-view{border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.iv{display:grid;grid-template-columns:1fr 280px;height:480px;background:var(--sheet)}
+.iv:fullscreen{height:100vh}
+.iv-stage{position:relative;min-width:0;background:var(--paper)}
+.iv-canvas{display:block;width:100%;height:100%;cursor:grab;touch-action:none}
+.iv-load{position:absolute;inset:0;display:grid;place-items:center;font-size:13.5px;color:var(--muted);background:var(--paper)}
+.iv-tools{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:6px}
+.iv-tools button{width:32px;height:32px;display:grid;place-items:center;font-size:16px;background:var(--sheet);color:var(--ink);border:1px solid var(--line);border-radius:7px}
+.iv-tools button:hover{border-color:var(--sim);color:var(--sim-ink)}
+.iv-hint{position:absolute;left:10px;bottom:10px;font-size:12px;color:var(--muted);background:var(--sheet);border:1px solid var(--line);border-radius:99px;padding:4px 10px;pointer-events:none;max-width:calc(100% - 20px)}
+.iv-side{border-left:1px solid var(--line);overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.iv-h{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.iv-tree{list-style:none;margin:0 0 6px;padding:0;font-size:13px}
+.iv-tree li{padding:4px 6px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iv-tree li:hover{background:var(--paper)}
+.iv-tree li.on{background:var(--sim-soft);color:var(--sim-ink)}
+.iv-tt{font-family:var(--f-mono);font-size:10px;color:var(--muted);margin-right:6px}
+.iv-pt{display:flex;flex-direction:column;gap:2px;font-size:14px}
+.iv-pt span{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.iv-ps{font-weight:600;font-size:12.5px;margin-top:8px}
+.iv-dl{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin:4px 0 0;font-size:12.5px}
+.iv-dl dt{color:var(--muted)}
+.iv-dl dd{margin:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.iv-muted{color:var(--muted);font-size:12.5px;margin:0}
+@media (max-width:620px){ .iv{grid-template-columns:1fr;grid-template-rows:320px auto;height:auto} .iv-side{border-left:0;border-top:1px solid var(--line);max-height:320px} }
 .val .sim-tile.key{border-color:var(--accent);background:var(--accent-soft)}
 .val .sim-tile.key dd{color:var(--accent)}
 .val .sim-tag{color:var(--accent);border-color:var(--accent)}
@@ -207,6 +233,7 @@ footer a{color:inherit}
 .top.solo .score{display:grid;grid-template-columns:minmax(180px,240px) 1fr;gap:12px 28px;align-items:center}
 @media (max-width:620px){ .map{height:290px} .top.solo .score{grid-template-columns:1fr} }
 </style>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.min.js"}}</script>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" defer></script>
 <script src="/ifc.js" defer></script>
@@ -655,6 +682,7 @@ function gaugeSVG(v){
 }
 
 function render(d){
+  closeIfcViewer();
   const sim=simulate(d); d.sim=sim;
   const ev=evaluate(d, sim);
   const useMap = !d.demo && !!d.parcel && !!window.maplibregl && d.e!=null;
@@ -736,7 +764,7 @@ function simBodyHtml(sim, d){
       <div class="sim-tile"><dt>Mögliche Wohnungen</dt><dd>${rangeFmt(sim.units[0],sim.units[1])}<small>bei ca. ${WOHNUNG_M2} m² pro Wohnung</small></dd></div>
     </dl>
     <p class="sim-note">${note} Das mögliche Volumen ist in der Karte orange eingezeichnet.</p>
-    ${!d.demo&&d.e!=null&&sim.shape?`<div class="sim-actions"><button type="button" class="ifc-btn" id="ifcBtn"><b>IFC</b>Bauvolumen als BIM-Modell herunterladen</button><small>IFC4, georeferenziert (LV95). Öffnet in ArchiCAD, Revit, Allplan, Vectorworks und BIM-Viewern.</small></div>`:""}`;
+    ${!d.demo&&d.e!=null&&sim.shape?`<div class="sim-actions"><button type="button" class="ifc-btn" id="ifcPreview" aria-expanded="${!!ivHandle}" aria-controls="ifcView"><b>BIM</b>3D-Vorschau</button><button type="button" class="ifc-btn" id="ifcBtn"><b>IFC</b>Herunterladen</button><small>IFC4, georeferenziert (LV95). Öffnet in ArchiCAD, Revit, Allplan, Vectorworks und BIM-Viewern.</small></div>`:""}`;
 }
 
 function simBlock(sim, d){
@@ -747,6 +775,7 @@ function simBlock(sim, d){
   return `<section class="sim" id="simSection">
     <div class="sim-head"><div class="eyebrow">Bebauungssimulation</div><span class="sim-tag" id="simTag">${simTagText(d)}</span></div>
     <div id="simBody">${simBodyHtml(sim, d)}</div>
+    <div class="ifc-view" id="ifcView" hidden></div>
     <button type="button" class="sim-edit" id="simEdit" aria-expanded="${open}" ${open?"hidden":""}>Werte anpassen</button>
     <form class="sim-form" id="simForm" ${open?"":"hidden"} novalidate>
       <div><label for="simAbstand">Grenzabstand (m)</label><input id="simAbstand" inputmode="decimal" placeholder="${r?String(r.abstand).replace(".",","):"5"}" value="${o.abstand!=null?String(o.abstand).replace(".",","):""}"></div>
@@ -918,50 +947,79 @@ function lageHtml(d){
   return head+`<div class="xgrid"><div><h4>Öffentlicher Verkehr</h4>${oevH}</div><div><h4>Umgebung</h4>${umgH}</div></div><div><h4 style="margin:4px 0 8px;font:600 13px var(--f-body)">Leerwohnungsziffer</h4>${lwzH}</div>`;
 }
 
-/* ---------- BIM-Export (IFC4) des simulierten Volumens ---------- */
+/* ---------- BIM-Export (IFC4) des simulierten Volumens und Vorschau im Browser ---------- */
+async function makeIfc(d){
+  const sim=d.sim; if(!sim||!sim.shape||!window.buildIfc) return null;
+  // Geländehöhe am Ursprung (m ü. M.) für die Georeferenzierung, einmal pro Parzelle
+  let h=d.h3d ?? d.hIfc;
+  if(h==null){ try{ const j=await getJSON(`${API}/height?easting=${d.e}&northing=${d.n}&sr=2056`, 6000); h=Number(j.height); }catch(e){} }
+  if(!isFinite(h)) h=0; d.hIfc=h;
+  const [lon,lat]=lv95ToWgs(d.e,d.n);
+  const r=sim.rules, v=valuation(d, sim);
+  const props={
+    "Adresse": d.label, "E-GRID": d.egrid, "Parzelle": d.parzelle, "Gemeinde": d.gemeinde, "Kanton": d.kanton,
+    "Parzellenfläche m2": d.parcelArea||null,
+    "Zone": d.oerebZone ? d.oerebZone.text+" (ÖREB-Kataster)" : d.zone,
+    "Grundlage": r.custom?"Werte angepasst":r.fromOereb?"Zone aus ÖREB-Kataster, Kennzahlen geschätzt":"Standardwerte pro Zonentyp",
+    "Grenzabstand m": r.abstand, "Geschosse max": r.geschosse,
+    "Ausnützungsziffer von": Math.round(r.az[0]*100)/100, "Ausnützungsziffer bis": Math.round(r.az[1]*100)/100,
+    "Bebaubare Fläche m2": Math.round(sim.footArea),
+    "Zulässige Geschossfläche min m2": Math.round(sim.gfLo), "Zulässige Geschossfläche max m2": Math.round(sim.gfHi),
+    "Bestehende Geschossfläche m2": sim.existing!=null?Math.round(sim.existing):null,
+    "Ausbau-Reserve": simText(sim), "Mögliche Wohnungen": rangeFmt(sim.units[0],sim.units[1]),
+    "Landwert Richtwert": valText(v), "Geländehöhe m ü. M.": Math.round(h*10)/10,
+    "Erstellt": new Date().toLocaleString("de-CH",{timeZone:"Europe/Zurich"}),
+    "Hinweis": "Unverbindliche Schätzung aus dem Grundstück-Check (Prototyp TTMS Schweiz AG). Massgebend sind Bau- und Zonenordnung sowie der ÖREB-Auszug."
+  };
+  const base=(d.label||"Parzelle").split(",")[0].replace(/[^\wäöüÄÖÜ-]+/g,"_").replace(/^_|_$/g,"");
+  const fileName=`Potenzial_${base}.ifc`;
+  const txt=window.buildIfc({
+    projectName:`Potenzial ${d.label}`, siteName:`Parzelle ${d.parzelle||""}`.trim(), buildingName:"Mögliches Bauvolumen (Simulation)",
+    egrid:d.egrid, address:d.label, e:d.e, n:d.n, h, lat, lon,
+    parcel:d.parcel, footprint:sim.shape, floors:sim.floors, floorHeight:GESCHOSSHOEHE, props, fileName
+  });
+  return {txt, fileName};
+}
 async function exportIfc(d, btn){
-  const sim=d.sim; if(!sim||!sim.shape||!window.buildIfc) return;
   const old=btn.innerHTML; btn.disabled=true; btn.innerHTML="<b>IFC</b>Wird erstellt …";
   try{
-    // Geländehöhe am Ursprung (m ü. M.) für die Georeferenzierung
-    let h=d.h3d;
-    if(h==null){ try{ const j=await getJSON(`${API}/height?easting=${d.e}&northing=${d.n}&sr=2056`, 6000); h=Number(j.height); }catch(e){} }
-    if(!isFinite(h)) h=0;
-    const [lon,lat]=lv95ToWgs(d.e,d.n);
-    const r=sim.rules, v=valuation(d, sim);
-    const props={
-      "Adresse": d.label, "E-GRID": d.egrid, "Parzelle": d.parzelle, "Gemeinde": d.gemeinde, "Kanton": d.kanton,
-      "Parzellenfläche m2": d.parcelArea||null,
-      "Zone": d.oerebZone ? d.oerebZone.text+" (ÖREB-Kataster)" : d.zone,
-      "Grundlage": r.custom?"Werte angepasst":r.fromOereb?"Zone aus ÖREB-Kataster, Kennzahlen geschätzt":"Standardwerte pro Zonentyp",
-      "Grenzabstand m": r.abstand, "Geschosse max": r.geschosse,
-      "Ausnützungsziffer von": Math.round(r.az[0]*100)/100, "Ausnützungsziffer bis": Math.round(r.az[1]*100)/100,
-      "Bebaubare Fläche m2": Math.round(sim.footArea),
-      "Zulässige Geschossfläche min m2": Math.round(sim.gfLo), "Zulässige Geschossfläche max m2": Math.round(sim.gfHi),
-      "Bestehende Geschossfläche m2": sim.existing!=null?Math.round(sim.existing):null,
-      "Ausbau-Reserve": simText(sim), "Mögliche Wohnungen": rangeFmt(sim.units[0],sim.units[1]),
-      "Landwert Richtwert": valText(v), "Geländehöhe m ü. M.": Math.round(h*10)/10,
-      "Erstellt": new Date().toLocaleString("de-CH",{timeZone:"Europe/Zurich"}),
-      "Hinweis": "Unverbindliche Schätzung aus dem Grundstück-Check (Prototyp TTMS Schweiz AG). Massgebend sind Bau- und Zonenordnung sowie der ÖREB-Auszug."
-    };
-    const base=(d.label||"Parzelle").split(",")[0].replace(/[^\wäöüÄÖÜ-]+/g,"_").replace(/^_|_$/g,"");
-    const fileName=`Potenzial_${base}.ifc`;
-    const txt=window.buildIfc({
-      projectName:`Potenzial ${d.label}`, siteName:`Parzelle ${d.parzelle||""}`.trim(), buildingName:"Mögliches Bauvolumen (Simulation)",
-      egrid:d.egrid, address:d.label, e:d.e, n:d.n, h, lat, lon,
-      parcel:d.parcel, footprint:sim.shape, floors:sim.floors, floorHeight:GESCHOSSHOEHE, props, fileName
-    });
-    const url=URL.createObjectURL(new Blob([txt],{type:"application/x-step"}));
-    const a=document.createElement("a"); a.href=url; a.download=fileName; document.body.appendChild(a); a.click(); a.remove();
+    const f=await makeIfc(d); if(!f) throw new Error("kein Volumen");
+    const url=URL.createObjectURL(new Blob([f.txt],{type:"application/x-step"}));
+    const a=document.createElement("a"); a.href=url; a.download=f.fileName; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 10000);
     btn.innerHTML="<b>IFC</b>Heruntergeladen";
     setTimeout(()=>{ btn.innerHTML=old; }, 2500);
-  }catch(e){ btn.innerHTML="<b>IFC</b>Export fehlgeschlagen, bitte nochmals versuchen"; }
+  }catch(e){ btn.innerHTML="<b>IFC</b>Fehlgeschlagen, nochmals versuchen"; }
   finally{ btn.disabled=false; }
+}
+let ivHandle=null, ivTimer=null, ivModule=null;
+function closeIfcViewer(){ if(ivHandle){ ivHandle.dispose(); ivHandle=null; } }
+async function toggleIfcPreview(d, btn){
+  const box=document.getElementById("ifcView"); if(!box) return;
+  if(ivHandle){ closeIfcViewer(); box.hidden=true; btn.setAttribute("aria-expanded","false"); fitFrame(); return; }
+  btn.disabled=true; const old=btn.innerHTML; btn.innerHTML="<b>BIM</b>Lädt …";
+  try{
+    const f=await makeIfc(d); if(!f) throw new Error("kein Volumen");
+    box.hidden=false; fitFrame();
+    ivModule = ivModule || await import("/ifc-viewer.js");
+    ivHandle = await ivModule.mountIfcViewer(box, {ifcText:f.txt, fileName:f.fileName});
+    btn.setAttribute("aria-expanded","true");
+    box.scrollIntoView({behavior:"smooth", block:"nearest"});
+  }catch(e){ console.error(e); box.hidden=false; box.innerHTML='<p class="sim-note" style="padding:12px">Die Vorschau konnte nicht geladen werden. Der Download funktioniert trotzdem.</p>'; }
+  finally{ btn.disabled=false; btn.innerHTML=old; fitFrame(); }
+}
+/* Werte geändert: offenes Modell neu erzeugen */
+function refreshIfcPreview(d){
+  if(!ivHandle) return;
+  clearTimeout(ivTimer);
+  ivTimer=setTimeout(async()=>{ const f=await makeIfc(d); if(f&&ivHandle) ivHandle.update(f.txt); }, 600);
 }
 
 function wireSim(d){
-  document.getElementById("simSection")?.addEventListener("click",ev=>{ const b=ev.target.closest("#ifcBtn"); if(b) exportIfc(d,b); });
+  document.getElementById("simSection")?.addEventListener("click",ev=>{
+    const b=ev.target.closest("#ifcBtn"); if(b) exportIfc(d,b);
+    const p=ev.target.closest("#ifcPreview"); if(p) toggleIfcPreview(d,p);
+  });
   const form=document.getElementById("simForm"); if(!form) return;
   const edit=document.getElementById("simEdit");
   edit.addEventListener("click",()=>{ form.hidden=false; edit.hidden=true; edit.setAttribute("aria-expanded","true"); document.getElementById("simAz").focus(); fitFrame(); });
@@ -993,6 +1051,7 @@ function updateSim(d){
   if(c3dOn&&viewer) drawSim3D(d);
   if(d.demo){ const fig=document.querySelector(".plan"); if(fig) fig.firstElementChild.outerHTML=planSVG(d); }
   updateVal(d);
+  refreshIfcPreview(d);
   fitFrame();
 }
 
