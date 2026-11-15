@@ -108,50 +108,120 @@
       return add(`IFCEXTRUDEDAREASOLID(${prof},${ax},${dz},${real(depth)})`);
     };
 
-    // Parzelle
+    const latlon = o.lat != null && o.lon != null ? `${toDms(o.lat)},${toDms(o.lon)}` : "$,$";
     const parcel = closeRing(o.parcel);
-    const siteSolid = extrude(parcel, 0.05, -0.05);
-    add(`IFCSTYLEDITEM(${siteSolid},(${stSite}),$)`);
-    const siteBody = add(`IFCSHAPEREPRESENTATION(${ctxBody},'Body','SweptSolid',(${siteSolid}))`);
     const fp = pts2(parcel);
     const fpPoly = add(`IFCPOLYLINE((${fp.concat(fp[0]).join(",")}))`);
     const siteFoot = add(`IFCSHAPEREPRESENTATION(${ctxFoot},'FootPrint','Curve2D',(${fpPoly}))`);
-    const siteShape = add(`IFCPRODUCTDEFINITIONSHAPE($,$,(${siteFoot},${siteBody}))`);
-    const latlon = o.lat != null && o.lon != null ? `${toDms(o.lat)},${toDms(o.lon)}` : "$,$";
+    const D = o.design;
+    let siteShape;
+    if (D) siteShape = add(`IFCPRODUCTDEFINITIONSHAPE($,$,(${siteFoot}))`);
+    else {
+      const siteSolid = extrude(parcel, 0.05, -0.05);
+      add(`IFCSTYLEDITEM(${siteSolid},(${stSite}),$)`);
+      const siteBody = add(`IFCSHAPEREPRESENTATION(${ctxBody},'Body','SweptSolid',(${siteSolid}))`);
+      siteShape = add(`IFCPRODUCTDEFINITIONSHAPE($,$,(${siteFoot},${siteBody}))`);
+    }
     const site = add(`IFCSITE('${guid()}',$,${str(o.siteName)},${str(o.address)},$,${sitePl},${siteShape},$,.ELEMENT.,${latlon},${real(o.h || 0)},${str(o.egrid)},$)`);
 
-    // Gebäude und Geschosse
-    const building = add(`IFCBUILDING('${guid()}',$,${str(o.buildingName)},${str("Mögliches Bauvolumen gemäss Simulation")},$,${bldPl},$,$,.ELEMENT.,${real(o.h || 0)},${real(o.h || 0)},$)`);
+    const building = add(`IFCBUILDING('${guid()}',$,${str(o.buildingName)},${str(D ? "Schemaprojekt gemäss Simulation, keine Planung" : "Mögliches Bauvolumen gemäss Simulation")},$,${bldPl},$,$,.ELEMENT.,${real(o.h || 0)},${real(o.h || 0)},$)`);
     add(`IFCRELAGGREGATES('${guid()}',$,$,$,${project},(${site}))`);
     add(`IFCRELAGGREGATES('${guid()}',$,$,$,${site},(${building}))`);
 
-    const fh = o.floorHeight || 3, foot = closeRing(o.footprint), fArea = area(foot);
-    const storeys = [], qtyTargets = [];
-    for (let i = 0; i < o.floors; i++) {
-      const pz = add(`IFCCARTESIANPOINT((0.,0.,${real(i * fh)}))`);
-      const sAx = add(`IFCAXIS2PLACEMENT3D(${pz},${dz},${dx})`);
-      const sPl = add(`IFCLOCALPLACEMENT(${bldPl},${sAx})`);
-      const label = i === 0 ? "Erdgeschoss" : `${i}. Obergeschoss`;
-      const storey = add(`IFCBUILDINGSTOREY('${guid()}',$,${str(label)},$,$,${sPl},$,$,.ELEMENT.,${real(i * fh)})`);
-      storeys.push(storey);
+    const psetOf = (objs, name, desc, props) => {
+      const ps = Object.entries(props || {}).filter(([, v]) => v != null && v !== "").map(([k, v]) =>
+        add(typeof v === "number" ? `IFCPROPERTYSINGLEVALUE(${str(k)},$,IFCREAL(${real(v)}),$)`
+          : `IFCPROPERTYSINGLEVALUE(${str(k)},$,IFCLABEL(${str(String(v).slice(0, 250))}),$)`));
+      if (!ps.length) return;
+      const set = add(`IFCPROPERTYSET('${guid()}',$,${str(name)},${str(desc)},(${ps.join(",")}))`);
+      add(`IFCRELDEFINESBYPROPERTIES('${guid()}',$,$,$,(${objs.join(",")}),${set})`);
+    };
 
-      const ePl = add(`IFCLOCALPLACEMENT(${sPl},${wcs})`);
-      const solid = extrude(foot, fh - 0.3, 0.15);
-      add(`IFCSTYLEDITEM(${solid},(${stVol}),$)`);
-      const rep = add(`IFCSHAPEREPRESENTATION(${ctxBody},'Body','SweptSolid',(${solid}))`);
-      const shape = add(`IFCPRODUCTDEFINITIONSHAPE($,$,(${rep}))`);
-      const el = add(`IFCBUILDINGELEMENTPROXY('${guid()}',$,${str(`Bauvolumen ${label}`)},${str("Simuliertes Geschossvolumen")},${str("Bauvolumen")},${ePl},${shape},$,.USERDEFINED.)`);
-      add(`IFCRELCONTAINEDINSPATIALSTRUCTURE('${guid()}',$,$,$,(${el}),${storey})`);
-      qtyTargets.push(el);
-    }
-    if (storeys.length) add(`IFCRELAGGREGATES('${guid()}',$,$,$,${building},(${storeys.join(",")}))`);
+    if (D) {
+      // ---------- Schemaprojekt: Geschosse, Wände, Decken, Räume, Balkone, Rampe, Gelände ----------
+      const STY = { wall: [0.94, 0.93, 0.9, 0], wallInt: [0.86, 0.85, 0.82, 0], slab: [0.74, 0.74, 0.72, 0], roof: [0.56, 0.58, 0.6, 0],
+        unit: [0.55, 0.73, 0.93, 0.6], core: [0.98, 0.83, 0.38, 0.5], parking: [0.62, 0.68, 0.78, 0.6], cellar: [0.72, 0.72, 0.72, 0.6],
+        balcony: [0.84, 0.82, 0.78, 0], railing: [0.36, 0.43, 0.5, 0.35], ramp: [0.47, 0.47, 0.49, 0], terrain: [0.82, 0.87, 0.76, 0],
+        boundary: [0.18, 0.83, 0.54, 0.1] };
+      const STN = { wall: "Aussenwand", wallInt: "Innenwand", slab: "Decke", roof: "Dach", unit: "Wohnung", core: "Erschliessung", parking: "Tiefgarage",
+        cellar: "Keller", balcony: "Balkon", railing: "Geländer", ramp: "Rampe", terrain: "Gelände", boundary: "Parzellengrenze" };
+      const styles = {};
+      const styleOf = k => styles[k] || (styles[k] = style(STN[k] || k, ...(STY[k] || [0.8, 0.8, 0.8, 0])));
+      const storeyPl = [], storeyIds = [];
+      D.storeys.forEach(st => {
+        const pz = add(`IFCCARTESIANPOINT((0.,0.,${real(st.elev)}))`);
+        const sAx = add(`IFCAXIS2PLACEMENT3D(${pz},${dz},${dx})`);
+        const sPl = add(`IFCLOCALPLACEMENT(${bldPl},${sAx})`);
+        storeyPl.push(sPl);
+        storeyIds.push(add(`IFCBUILDINGSTOREY('${guid()}',$,${str(st.name)},$,$,${sPl},$,$,.ELEMENT.,${real(st.elev)})`));
+      });
+      add(`IFCRELAGGREGATES('${guid()}',$,$,$,${building},(${storeyIds.join(",")}))`);
+      const contained = new Map(), spacesBy = new Map();
+      for (const el of D.elements) {
+        const items = [];
+        let repType = "SweptSolid";
+        for (const sh of el.shapes) {
+          let it;
+          if (sh.type === "mesh") {
+            repType = "Tessellation";
+            const cl = add(`IFCCARTESIANPOINTLIST3D((${sh.pts.map(p => `(${real(p[0])},${real(p[1])},${real(p[2])})`).join(",")}))`);
+            it = add(`IFCTRIANGULATEDFACESET(${cl},$,.F.,(${sh.tris.map(t => `(${t[0] + 1},${t[1] + 1},${t[2] + 1})`).join(",")}),$)`);
+          } else it = extrude(sh.poly, sh.depth, sh.z);
+          add(`IFCSTYLEDITEM(${it},(${styleOf(el.style)}),$)`);
+          items.push(it);
+        }
+        const rep = add(`IFCSHAPEREPRESENTATION(${ctxBody},'Body','${repType}',(${items.join(",")}))`);
+        const shape = add(`IFCPRODUCTDEFINITIONSHAPE($,$,(${rep}))`);
+        const onSite = el.storey === "site";
+        const pl = add(`IFCLOCALPLACEMENT(${onSite ? sitePl : storeyPl[el.storey]},${wcs})`);
+        const ot = el.objectType ? str(el.objectType) : "$";
+        let id;
+        if (el.ifc === "IFCSPACE") {
+          id = add(`IFCSPACE('${guid()}',$,${str(el.name)},$,${ot},${pl},${shape},${str(el.longName)},.ELEMENT.,.${el.predef}.,$)`);
+          if (!spacesBy.has(el.storey)) spacesBy.set(el.storey, []);
+          spacesBy.get(el.storey).push(id);
+        } else {
+          id = add(`${el.ifc}('${guid()}',$,${str(el.name)},$,${ot},${pl},${shape},$,.${el.predef}.)`);
+          const key = onSite ? "site" : el.storey;
+          if (!contained.has(key)) contained.set(key, []);
+          contained.get(key).push(id);
+        }
+        if (el.props) psetOf([id], "CH_Schemaprojekt", "Schemaprojekt Grundstück-Check", el.props);
+      }
+      for (const [k, ids] of contained) add(`IFCRELCONTAINEDINSPATIALSTRUCTURE('${guid()}',$,$,$,(${ids.join(",")}),${k === "site" ? site : storeyIds[k]})`);
+      for (const [k, ids] of spacesBy) add(`IFCRELAGGREGATES('${guid()}',$,$,$,${storeyIds[k]},(${ids.join(",")}))`);
+      if (D.summary) psetOf([building], "CH_Schemaprojekt", "Kennzahlen Schemaprojekt", D.summary);
+    } else {
+      // Gebäude und Geschosse
 
-    // Mengen pro Geschoss
-    if (qtyTargets.length) {
-      const qa = add(`IFCQUANTITYAREA('GrossFloorArea',${str("Geschossfläche")},$,${real(fArea)},$)`);
-      const qv = add(`IFCQUANTITYVOLUME('GrossVolume',${str("Bruttovolumen")},$,${real(fArea * fh)},$)`);
-      const eq = add(`IFCELEMENTQUANTITY('${guid()}',$,'Qto_Bauvolumen',$,$,(${qa},${qv}))`);
-      add(`IFCRELDEFINESBYPROPERTIES('${guid()}',$,$,$,(${qtyTargets.join(",")}),${eq})`);
+      const fh = o.floorHeight || 3, foot = closeRing(o.footprint), fArea = area(foot);
+      const storeys = [], qtyTargets = [];
+      for (let i = 0; i < o.floors; i++) {
+        const pz = add(`IFCCARTESIANPOINT((0.,0.,${real(i * fh)}))`);
+        const sAx = add(`IFCAXIS2PLACEMENT3D(${pz},${dz},${dx})`);
+        const sPl = add(`IFCLOCALPLACEMENT(${bldPl},${sAx})`);
+        const label = i === 0 ? "Erdgeschoss" : `${i}. Obergeschoss`;
+        const storey = add(`IFCBUILDINGSTOREY('${guid()}',$,${str(label)},$,$,${sPl},$,$,.ELEMENT.,${real(i * fh)})`);
+        storeys.push(storey);
+
+        const ePl = add(`IFCLOCALPLACEMENT(${sPl},${wcs})`);
+        const solid = extrude(foot, fh - 0.3, 0.15);
+        add(`IFCSTYLEDITEM(${solid},(${stVol}),$)`);
+        const rep = add(`IFCSHAPEREPRESENTATION(${ctxBody},'Body','SweptSolid',(${solid}))`);
+        const shape = add(`IFCPRODUCTDEFINITIONSHAPE($,$,(${rep}))`);
+        const el = add(`IFCBUILDINGELEMENTPROXY('${guid()}',$,${str(`Bauvolumen ${label}`)},${str("Simuliertes Geschossvolumen")},${str("Bauvolumen")},${ePl},${shape},$,.USERDEFINED.)`);
+        add(`IFCRELCONTAINEDINSPATIALSTRUCTURE('${guid()}',$,$,$,(${el}),${storey})`);
+        qtyTargets.push(el);
+      }
+      if (storeys.length) add(`IFCRELAGGREGATES('${guid()}',$,$,$,${building},(${storeys.join(",")}))`);
+
+      // Mengen pro Geschoss
+      if (qtyTargets.length) {
+        const qa = add(`IFCQUANTITYAREA('GrossFloorArea',${str("Geschossfläche")},$,${real(fArea)},$)`);
+        const qv = add(`IFCQUANTITYVOLUME('GrossVolume',${str("Bruttovolumen")},$,${real(fArea * fh)},$)`);
+        const eq = add(`IFCELEMENTQUANTITY('${guid()}',$,'Qto_Bauvolumen',$,$,(${qa},${qv}))`);
+        add(`IFCRELDEFINESBYPROPERTIES('${guid()}',$,$,$,(${qtyTargets.join(",")}),${eq})`);
+      }
     }
 
     // Kennzahlen als Eigenschaftssatz

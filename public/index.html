@@ -158,7 +158,16 @@ footer a{color:inherit}
 .sim-actions small{color:var(--muted);font-size:12px;flex-basis:100%}
 .ifc-btn[aria-expanded="true"]{background:var(--sim);color:#fff;border-color:var(--sim)}
 .ifc-view{border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
-.iv{display:grid;grid-template-columns:1fr 280px;height:480px;background:var(--sheet)}
+.iv{display:grid;grid-template-columns:1fr 280px;grid-template-rows:auto 1fr;height:540px;background:var(--sheet)}
+.iv-bar{grid-column:1;grid-row:1;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid var(--line)}
+.iv-layers{display:flex;flex-wrap:wrap;gap:6px}
+.iv-chip{display:inline-flex;gap:5px;align-items:center;font-size:12.5px;border:1px solid var(--line);border-radius:99px;padding:3px 9px;cursor:pointer;user-select:none}
+.iv-chip input{width:auto;margin:0;accent-color:var(--sim)}
+.iv-chip:has(input:checked){border-color:var(--sim);background:var(--sim-soft)}
+.iv-floor{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--muted)}
+.iv-floor select{width:auto;padding:4px 8px;font-size:12.5px}
+.iv-stage{grid-column:1;grid-row:2}
+.iv-side{grid-column:2;grid-row:1 / span 2}
 .iv:fullscreen{height:100vh}
 .iv-stage{position:relative;min-width:0;background:var(--paper)}
 .iv-canvas{display:block;width:100%;height:100%;cursor:grab;touch-action:none}
@@ -181,7 +190,7 @@ footer a{color:inherit}
 .iv-dl dt{color:var(--muted)}
 .iv-dl dd{margin:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .iv-muted{color:var(--muted);font-size:12.5px;margin:0}
-@media (max-width:620px){ .iv{grid-template-columns:1fr;grid-template-rows:320px auto;height:auto} .iv-side{border-left:0;border-top:1px solid var(--line);max-height:320px} }
+@media (max-width:620px){ .iv{grid-template-columns:1fr;grid-template-rows:auto 340px auto;height:auto} .iv-stage{grid-row:2} .iv-side{grid-column:1;grid-row:3;border-left:0;border-top:1px solid var(--line);max-height:320px} }
 .val .sim-tile.key{border-color:var(--accent);background:var(--accent-soft)}
 .val .sim-tile.key dd{color:var(--accent)}
 .val .sim-tag{color:var(--accent);border-color:var(--accent)}
@@ -237,6 +246,7 @@ footer a{color:inherit}
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" defer></script>
 <script src="/ifc.js" defer></script>
+<script src="/design.js" defer></script>
 </head>
 <body>
 
@@ -764,7 +774,7 @@ function simBodyHtml(sim, d){
       <div class="sim-tile"><dt>Mögliche Wohnungen</dt><dd>${rangeFmt(sim.units[0],sim.units[1])}<small>bei ca. ${WOHNUNG_M2} m² pro Wohnung</small></dd></div>
     </dl>
     <p class="sim-note">${note} Das mögliche Volumen ist in der Karte orange eingezeichnet.</p>
-    ${!d.demo&&d.e!=null&&sim.shape?`<div class="sim-actions"><button type="button" class="ifc-btn" id="ifcPreview" aria-expanded="${!!ivHandle}" aria-controls="ifcView"><b>BIM</b>3D-Vorschau</button><button type="button" class="ifc-btn" id="ifcBtn"><b>IFC</b>Herunterladen</button><small>IFC4, georeferenziert (LV95). Öffnet in ArchiCAD, Revit, Allplan, Vectorworks und BIM-Viewern.</small></div>`:""}`;
+    ${!d.demo&&d.e!=null&&sim.shape?`<div class="sim-actions"><button type="button" class="ifc-btn" id="ifcPreview" aria-expanded="${!!ivHandle}" aria-controls="ifcView"><b>BIM</b>3D-Vorschau</button><button type="button" class="ifc-btn" id="ifcBtn"><b>IFC</b>Herunterladen</button><small>Schemaprojekt als IFC4 mit Gelände, Grundrissen, Balkonen und Untergeschoss, georeferenziert (LV95). Öffnet in ArchiCAD, Revit, Allplan, Vectorworks und BIM-Viewern.</small></div>`:""}`;
 }
 
 function simBlock(sim, d){
@@ -948,6 +958,28 @@ function lageHtml(d){
 }
 
 /* ---------- BIM-Export (IFC4) des simulierten Volumens und Vorschau im Browser ---------- */
+/* Geländeraster um die Parzelle aus swisstopo (Profil-API, swissALTI3D), Höhen relativ zum Ursprung */
+async function sampleTerrain(d, h0){
+  if(d.terrainGrid!==undefined) return d.terrainGrid;
+  try{
+    const xs=d.parcel.map(p=>p[0]), ys=d.parcel.map(p=>p[1]), M=14;
+    const x0=Math.min(...xs)-M, x1=Math.max(...xs)+M, y0=Math.min(...ys)-M, y1=Math.max(...ys)+M;
+    const nx=13, ny=13, dx=(x1-x0)/(nx-1), dy=(y1-y0)/(ny-1);
+    const rows=await Promise.all(Array.from({length:ny},async(_,j)=>{
+      const y=y0+j*dy, geom=JSON.stringify({type:"LineString",coordinates:[[d.e+x0,d.n+y],[d.e+x1,d.n+y]]});
+      const pts=await getJSON(`${API}/profile.json?geom=${encodeURIComponent(geom)}&sr=2056&nb_points=${nx}&offset=0`, 9000);
+      if(!Array.isArray(pts)||pts.length<2) throw new Error("profil leer");
+      // auf nx gleichmässige Punkte umrechnen
+      const L=x1-x0, alt=p=>{ const a=p.alts||{}; return a.DTM2??a.COMB??a.DTM25??p.alt??p.height; };
+      const ds=pts.map(p=>p.dist), zs=pts.map(alt).map(Number);
+      return Array.from({length:nx},(_,i)=>{ const t=i/(nx-1)*L; let k=ds.findIndex(v=>v>=t); if(k<=0) return zs[Math.max(0,k)]; const f=(t-ds[k-1])/((ds[k]-ds[k-1])||1); return zs[k-1]+(zs[k]-zs[k-1])*f; });
+    }));
+    const z=rows.flat().map(v=>Math.round((v-h0)*100)/100);
+    if(z.some(v=>!isFinite(v))) throw new Error("ungültige Höhen");
+    d.terrainGrid={x0,y0,dx,dy,nx,ny,z};
+  }catch(e){ console.warn("Gelände nicht verfügbar", e); d.terrainGrid=null; }
+  return d.terrainGrid;
+}
 async function makeIfc(d){
   const sim=d.sim; if(!sim||!sim.shape||!window.buildIfc) return null;
   // Geländehöhe am Ursprung (m ü. M.) für die Georeferenzierung, einmal pro Parzelle
@@ -971,12 +1003,21 @@ async function makeIfc(d){
     "Erstellt": new Date().toLocaleString("de-CH",{timeZone:"Europe/Zurich"}),
     "Hinweis": "Unverbindliche Schätzung aus dem Grundstück-Check (Prototyp TTMS Schweiz AG). Massgebend sind Bau- und Zonenordnung sowie der ÖREB-Auszug."
   };
+  // Schemaprojekt mit Gelände; ohne Ergebnis bleibt es beim einfachen Volumen
+  let design=null;
+  if(window.makeDesign && sim.foot){
+    const grid=await sampleTerrain(d, h);
+    const terrain=grid?window.terrainFromGrid(grid):()=>0;
+    try{ design=window.makeDesign({parcel:d.parcel, footprint:sim.foot, floorsMax:r.geschosse, gfMax:sim.gfHi, addressPoint:[0,0], terrain, terrainGrid:grid}); }
+    catch(e){ console.error(e); design=null; }
+  }
   const base=(d.label||"Parzelle").split(",")[0].replace(/[^\wäöüÄÖÜ-]+/g,"_").replace(/^_|_$/g,"");
-  const fileName=`Potenzial_${base}.ifc`;
+  const fileName=`${design?"Schemaprojekt":"Potenzial"}_${base}.ifc`;
   const txt=window.buildIfc({
-    projectName:`Potenzial ${d.label}`, siteName:`Parzelle ${d.parzelle||""}`.trim(), buildingName:"Mögliches Bauvolumen (Simulation)",
+    projectName:`${design?"Schemaprojekt":"Potenzial"} ${d.label}`, siteName:`Parzelle ${d.parzelle||""}`.trim(),
+    buildingName:design?"Schemaprojekt (Machbarkeit)":"Mögliches Bauvolumen (Simulation)",
     egrid:d.egrid, address:d.label, e:d.e, n:d.n, h, lat, lon,
-    parcel:d.parcel, footprint:sim.shape, floors:sim.floors, floorHeight:GESCHOSSHOEHE, props, fileName
+    parcel:d.parcel, footprint:sim.shape, floors:sim.floors, floorHeight:GESCHOSSHOEHE, props, fileName, design
   });
   return {txt, fileName};
 }
