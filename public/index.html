@@ -151,6 +151,8 @@ footer a{color:inherit}
 .gwlist .gw input{width:auto;margin:3px 0 0;accent-color:var(--accent)}
 .gwlist .gw:has(input:checked) .v b{color:var(--accent)}
 .gw-f{color:var(--muted);font-size:12.5px}
+.gw-when{color:var(--warn) !important}
+.chk{display:flex;flex-wrap:wrap;gap:8px}
 .gwlist .r small{display:block;text-align:right;font-size:11.5px}
 .gwlist .gw-tot{border-top:1px solid var(--line);padding-top:8px;cursor:default}
 .leadbox select{padding:11px 12px}
@@ -1056,7 +1058,24 @@ function garageHtml(d){
   krows.push(`<li><span class="k">${g.garage?"Davon Aushub":"Aushub"}</span><span class="v">${chfR(cst.aushub[0],cst.aushub[1])}<small>${fmt(g.vFest)} m³ × CHF ${GAR_COST.aushub[0]}–${GAR_COST.aushub[1]} inkl. Abtransport und Deponie</small></span><span class="r"></span></li>`);
   return head+`<dl class="sim-grid${tiles.length===4?" g4":""}" style="margin:0">${tiles.join("")}</dl>
     <div class="xgrid"><div><h4>Rampe und Baugrube</h4><ul class="xlist">${rows.join("")}</ul></div><div><h4>Kosten (grobe Bandbreite)</h4><ul class="xlist">${krows.join("")}</ul></div></div>
+    ${vorabHtml(d,g,cst)}
     <p class="sim-note">${d.designTerrain?"Gelände aus swissALTI3D.":"Ohne Geländedaten, flach angenommen."} Rampe nach üblichen Werten (Vorplatz 5 m mit max. 5 %, Ausrundungen, max. 12 % ungedeckt bzw. 15 % gedeckt) gemäss VSS-Praxis und kommunalen Bauordnungen; massgebend sind Bauordnung und VSS-Norm. Kosten: Neho (Mai 2026), DaiBau-Richtpreise. Grobe Schätzung ±30 %, keine Kostenberechnung.</p>`;
+}
+/* Vor Baubeginn klären: Vorabklärungen im Tiefbau (Baugrund, Werkleitungen, Grundwasser, Altlasten, Nachbarn, Bewilligungen) */
+function vorabHtml(d,g,cst){
+  const a=altInfo(d), deep=g.depthMax>1.5, shore=g.shoring.length>0;
+  const it=[
+    ["Baugrund", `Baugrundgutachten für eine Aushubtiefe bis ${String(g.depthMax).replace(".",",")} m. Es klärt Böschungsneigung, Baugrubenabschluss und Fundation.`, shore||g.depthMax>4?"warn":"info"],
+    deep?["Sicherung", "Baugruben und Gräben ab 1,5 m Tiefe böschen oder spriessen (Bauarbeitenverordnung BauAV, SUVA). Nie ungesichert einsteigen.", "info"]:null,
+    ["Werkleitungen", "Leitungsauskunft aller Werke einholen (Wasser, Abwasser, Strom, Gas, Telekom, Fernwärme). Lage vor Ort markieren, nahe Leitungen von Hand aushuben.", "info"],
+    ["Grundwasser", cst.gwFlag?"Grundwasserschutz laut ÖREB-Kataster. Wasserhaltung und Einleitbewilligung für Baustellenabwasser früh klären.":"Grundwasserspiegel beim Kanton prüfen. Für eine Wasserhaltung braucht es eine Einleitbewilligung.", cst.gwFlag?"warn":"info"],
+    ["Altlasten", a.state==="entry"?"Eintrag im Kataster der belasteten Standorte. Altlastenuntersuchung und Entsorgungskonzept vor der Baueingabe.":a.state==="none"?"Kein Eintrag. Bei Verdacht auf belasteten Boden während des Aushubs Arbeiten stoppen und melden.":"Kataster nicht abrufbar, beim Kanton nachfragen.", a.state==="entry"?"warn":a.state==="none"?"ok":"info"],
+    ["Entsorgung", `${fmt(g.vFest)} m³ Aushub: Ab 200 m³ Bauabfällen verlangt die Baubehörde mit dem Baugesuch Angaben zur Entsorgung (VVEA Art. 16). Aushub getrennt nach Belastung entsorgen.`, "info"],
+    ["Nachbarn", shore?"Baugrubenabschluss an der Grenze: Beweissicherung mit Rissprotokollen an Nachbarbauten vor Baubeginn, allenfalls Anker auf Nachbargrund vereinbaren.":"Beweissicherung mit Rissprotokollen und Fotos an Nachbarbauten und Strasse vor Baubeginn.", shore?"warn":"info"],
+    ["Bewilligungen", "Baubewilligung, Kranbewilligung, bei Bedarf Trottoirbenützung, Verkehrsanordnung und Aufbruchbewilligung für die Zufahrt.", "info"],
+  ].filter(Boolean);
+  const lab={warn:"Abklären",ok:"Gut",info:"Prüfen"};
+  return `<div><h4 style="margin:0 0 8px;font:600 13px var(--f-body)">Vor Baubeginn klären</h4><ul class="xlist">${it.map(([k,v,f])=>`<li><span class="k">${k}</span><span class="v">${v}</span><span class="r"><span class="flag ${f}">${lab[f]}</span></span></li>`).join("")}</ul></div>`;
 }
 let garTimer=null;
 function refreshGarage(d){
@@ -1109,6 +1128,12 @@ function altText(d){
   if(a.state==="none") return "kein Eintrag";
   return null;
 }
+/* Gebäudeschadstoffe beim Rückbau: Gebäude vor 1990 können Asbest, PCB, PAK oder Blei enthalten (VVEA Art. 16) */
+function schadstoffHtml(d){
+  if(d.empty) return "";
+  const y=d.year||d.yearApprox; if(!y||y>=1990) return "";
+  return `<ul class="xlist" style="margin-top:4px"><li><span class="k">Rückbau</span><span class="v">Bestehendes Gebäude ${d.year?"von "+d.year:"vor 1990"}: Vor dem Rückbau ist eine Schadstoffermittlung nötig (Asbest, PCB, PAK, Blei). Die Baubehörde verlangt sie mit dem Baugesuch (VVEA Art. 16).<small>Schadstoffhaltige Bauteile werden vor dem Abbruch fachgerecht entfernt; das verlängert den Rückbau und erhöht die Kosten.</small></span><span class="r"><span class="flag warn">Abklären</span></span></li></ul>`;
+}
 function altHtml(d){
   const head=`<div class="sim-head"><div class="eyebrow">Altlasten</div><span class="sim-tag">Kataster der belasteten Standorte</span></div>`;
   const a=altInfo(d);
@@ -1118,6 +1143,7 @@ function altHtml(d){
   if(a.state==="none") return head+`<dl class="sim-grid" style="margin:0"><div class="sim-tile key"><dt>Status</dt><dd>Kein Eintrag<small>weder im kantonalen Kataster noch bei VBS, BAZL oder BAV</small></dd></div>
       <div class="sim-tile"><dt>Mehrkosten Aushub</dt><dd>keine erwartet<small>${g?`${fmt(g.vFest)} m³ als sauberer Aushub gerechnet`:"Aushub als unverschmutzt gerechnet"}</small></dd></div>
       <div class="sim-tile"><dt>Restrisiko</dt><dd>gering<small>Auffüllungen und Bauschutt sind trotzdem möglich</small></dd></div></dl>
+    ${schadstoffHtml(d)}
     <p class="sim-note">Kein Eintrag heisst nicht, dass der Boden sauber ist. Viele Kantone führen zusätzlich Prüfperimeter für Bodenverschiebungen (chemisch belasteter Boden, z.B. entlang von Strassen und Bahnlinien). Quelle: ÖREB-Kataster.</p>`;
   const st=ALT_STATUS[a.worst], c=altCosts(d,g), tot=c?[c.aushub[0]+c.unters[0], c.aushub[1]+c.unters[1]]:null;
   const rows=a.entries.map(e=>`<li><span class="k">${esc(e.kat)}</span><span class="v">${esc(e.text)}<small>${[e.typ, e.pct!=null?`${Math.round(e.pct)} % der Parzelle`:null].filter(Boolean).map(esc).join(" · ")}</small>${e.docs.length?`<small>${e.docs.map(x=>`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>`).join(" · ")}</small>`:""}</span><span class="r"><span class="flag ${ALT_STATUS[e.status][1]}">${e.status==="belastet"?"Belastet":"Abklären"}</span></span></li>`).join("");
@@ -1132,6 +1158,7 @@ function altHtml(d){
       <div class="sim-tile"><dt>Mehrkosten</dt><dd>${tot?chfR(tot[0],tot[1]):"–"}<small>Untersuchung und Entsorgung, grobe Annahme</small></dd></div></dl>
     <div class="xgrid"><div><h4>Einträge</h4><ul class="xlist">${rows}</ul></div>
       <div><h4>Was das bedeutet</h4><ul class="xlist">${conseq.map(([k,v])=>`<li><span class="k">${k}</span><span class="v">${v}</span><span class="r"></span></li>`).join("")}</ul></div></div>
+    ${schadstoffHtml(d)}
     <p class="sim-note">Quelle: ÖREB-Kataster (kantonaler Kataster und Kataster von VBS, BAZL, BAV). Kosten: Untersuchung CHF ${fmt(ALT_COST.unters[0])}–${fmt(ALT_COST.unters[1])}, Mehrkosten Entsorgung CHF ${ALT_COST.m3[0]}–${ALT_COST.m3[1]} pro m³ für ${Math.round(ALT_COST.share[0]*100)}–100 % des betroffenen Aushubs (Annahmen). Massgebend ist eine Altlastenuntersuchung.${d.oerebPdf?` <a href="${esc(d.oerebPdf)}" target="_blank" rel="noopener">ÖREB-Auszug als PDF</a>.`:""}</p>`;
 }
 
@@ -1144,9 +1171,9 @@ const RENT_KT={ZH:256,BE:192,LU:212,UR:181,SZ:242,OW:211,NW:232,GL:182,ZG:258,FR
   SG:194,GR:193,AG:215,TG:197,TI:185,VD:215,VS:178,NE:156,GE:253,JU:149};
 const MIETE_NEUBAU=1.35, LEERSTAND=0.02, BETRIEB=0.15, PP_KAUF=35000;
 const BKP=[
-  {id:"aushub",bkp:"20",name:"Baugrube und Aushub",firms:"Tiefbau, Aushub, Spezialtiefbau"},
-  {id:"baumeister",bkp:"21",w:32.5,name:"Baumeister und Rohbau",firms:"Baumeister, Gerüst, Montagebau"},
-  {id:"huelle",bkp:"22",w:10.3,name:"Fenster, Fassade, Dach",firms:"Fensterbau, Spengler, Bedachung, Fassadenbau"},
+  {id:"aushub",bkp:"20",name:"Baugrube und Aushub",firms:"Tiefbau, Aushub, Spezialtiefbau",when:"Sehr früh: Baugrubensicherung hat knappe Kapazitäten. Aushub und Entsorgung vor Baubeginn vergeben"},
+  {id:"baumeister",bkp:"21",w:32.5,name:"Baumeister und Rohbau",firms:"Baumeister, Gerüst, Montagebau",when:"Vor Rohbaubeginn. Beton mit Rahmenvertrag, Armierung nach freigegebenen Listen"},
+  {id:"huelle",bkp:"22",w:10.3,name:"Fenster, Fassade, Dach",firms:"Fensterbau, Spengler, Bedachung, Fassadenbau",when:"Nach Planfreigabe, vor dem Engpass im Terminplan. Abdichtungen und Fertigteile haben lange Lieferfristen"},
   {id:"elektro",bkp:"23",w:3.4,name:"Elektroanlagen",firms:"Elektroinstallation, Photovoltaik"},
   {id:"hlk",bkp:"24",w:5.1,name:"Heizung, Lüftung, Klima",firms:"Wärmepumpe, Lüftung, Gebäudeautomation"},
   {id:"sanitaer",bkp:"25",w:9.4,name:"Sanitär und Küchen",firms:"Sanitärinstallation, Küchenbau"},
@@ -1336,7 +1363,7 @@ function gewerke(d){
 function gewerkeListHtml(d, sel){
   const G=gewerke(d); if(!G) return "";
   return G.list.map(x=>`<li><label class="gw"><input type="checkbox" name="gw" value="${x.id}" ${sel.has(x.id)?"checked":""}>
-      <span class="k">BKP ${x.bkp}</span><span class="v"><b>${esc(x.name)}</b> <span class="gw-f">${esc(x.firms)}</span><small>${esc(x.menge)}</small></span>
+      <span class="k">BKP ${x.bkp}</span><span class="v"><b>${esc(x.name)}</b> <span class="gw-f">${esc(x.firms)}</span><small>${esc(x.menge)}</small>${x.when?`<small class="gw-when">Anfragen: ${esc(x.when)}</small>`:""}</span>
       <span class="r">CHF ${chf(Math.round(x.amt/5000)*5000)}<small>${Math.round(x.share*1000)/10} %</small></span></label></li>`).join("")
     +`<li class="gw-tot"><span></span><span class="k">Total</span><span class="v"><b>CHF ${chf(G.total)}</b><small>ohne Land und Baunebenkosten</small></span><span class="r"></span></li>`;
 }
@@ -1345,18 +1372,25 @@ function gewerkeBlock(d){
   if(!gewerke(d)) return "";
   return `<form class="leadbox" id="gwForm" novalidate style="position:relative">
     <div><div class="eyebrow">Offerten einholen</div><h3>Kosten nach Gewerk</h3></div>
-    <p>Wählen Sie die Gewerke, für die Sie Offerten möchten. Wir leiten die Anfrage mit Mengen und Plänen an bis zu drei geprüfte Unternehmen pro Gewerk weiter.</p>
+    <p>Wählen Sie die Gewerke, für die Sie Offerten möchten. Wir holen pro Gewerk drei vergleichbare Offerten ein und vergleichen sie nach Preis, Leistungsumfang, Vorbehalten, Terminen und Zahlungsbedingungen.</p>
     <ul class="xlist gwlist" id="gwList">${gewerkeListHtml(d,gwSel)}</ul>
     <div><button type="button" class="sim-reset" id="gwAll">Alle wählen</button></div>
     <div class="grid2">
       <div class="fld"><label for="gwStand">Projektstand</label><select id="gwStand" name="stand">${["Idee, noch kein Projekt","Vorprojekt","Baueingabe eingereicht","Baubewilligung liegt vor"].map(t=>`<option>${t}</option>`).join("")}</select></div>
       <div class="fld"><label for="gwStart">Baustart</label><select id="gwStart" name="start">${["In den nächsten 6 Monaten","In 6 bis 12 Monaten","In 1 bis 2 Jahren","Noch offen"].map(t=>`<option>${t}</option>`).join("")}</select></div>
     </div>
+    <div class="grid2">
+      <div class="fld"><label for="gwBasis">Vertragsbasis</label><select id="gwBasis" name="basis">${["Noch offen","Einheitspreise (Ausmass)","Globalpreis","Pauschalpreis"].map(t=>`<option>${t}</option>`).join("")}</select></div>
+      <div class="fld"><label for="gwSia">Vertragsbedingungen</label><select id="gwSia" name="sia">${["SIA 118 als Vertragsbestandteil","Eigene Bedingungen","Noch offen"].map(t=>`<option>${t}</option>`).join("")}</select></div>
+    </div>
+    <div class="fld"><label>Vorhandene Unterlagen</label><div class="radio chk">
+      ${["Pläne","Leistungsverzeichnis","Baugrundgutachten","Baubewilligung","Terminplan"].map(t=>`<label><input type="checkbox" name="doc" value="${t}">${t}</label>`).join("")}</div>
+      <p class="hint2" style="margin:6px 0 0">Je vollständiger die Unterlagen, desto vergleichbarer die Offerten.</p></div>
     ${contactFields("gw")}
     <label class="consent"><input type="checkbox" name="consent" required> Ich bin einverstanden, dass TTMS Schweiz AG meine Angaben und die Mengen an bis zu drei Unternehmen pro gewähltem Gewerk weitergibt.</label>
     <div class="err" id="gwErr" hidden></div>
     <div><button class="btn" type="submit">Offerten anfragen</button></div>
-    <div class="fine">Beträge aus der Kostenschätzung, Gewichtung nach Baukostenplan (BKP). Unverbindlich, ±25 %.</div>
+    <div class="fine">Beträge aus der Kostenschätzung, Gewichtung nach Baukostenplan (BKP). Unverbindlich, ±25 %. Unsere Partner weisen Referenzen, Versicherungen und die Einhaltung von GAV und Sozialversicherungen nach.</div>
   </form>`;
 }
 
@@ -1407,8 +1441,9 @@ function wireBiz(d){
       const err=document.getElementById("gwErr");
       if(!gwSel.size){ err.textContent="Bitte mindestens ein Gewerk wählen."; err.hidden=false; fitFrame(); return; }
       const G=gewerke(d);
-      const p={...leadBase(d,gf), type:"offerte", offerte:{stand:gf.stand.value, start:gf.start.value,
-        gewerke:G.list.filter(x=>gwSel.has(x.id)).map(x=>({id:x.id, bkp:x.bkp, name:x.name, betrag:Math.round(x.amt/1000)*1000, menge:x.menge}))}};
+      const p={...leadBase(d,gf), type:"offerte", offerte:{stand:gf.stand.value, start:gf.start.value, basis:gf.basis.value, sia:gf.sia.value,
+        unterlagen:[...gf.querySelectorAll('input[name=doc]:checked')].map(c=>c.value),
+        gewerke:G.list.filter(x=>gwSel.has(x.id)).map(x=>({id:x.id, bkp:x.bkp, name:x.name, betrag:Math.round(x.amt/1000)*1000, menge:x.menge, when:x.when||null}))}};
       sendLead(d, gf, "gwErr", "Offerten anfragen", p, `<h3>Danke, ${esc(p.name.split(" ")[0])}.</h3><p>Ihre Anfrage für ${p.offerte.gewerke.length} Gewerk${p.offerte.gewerke.length>1?"e":""} geht an passende Unternehmen. Sie erhalten die Offerten direkt.</p>`);
     });
   }

@@ -162,9 +162,14 @@ ${l.finanz ? `<tr><td style="padding:16px 24px;border-bottom:1px solid #D5DBD6">
 ${l.offerte ? `<tr><td style="padding:16px 24px;border-bottom:1px solid #D5DBD6">
   <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#5B6862;margin-bottom:6px">Offertanfrage · ${e(l.offerte.stand)} · Baustart ${e(l.offerte.start)}</div>
   <table role="presentation" cellpadding="0" cellspacing="0" style="font-size:14px;width:100%">
-    ${l.offerte.gewerke.filter(g => !partner || TYPES[l.type] === partner || g.name === partner).map(g => `<tr><td style="padding:6px 12px 6px 0;color:#5B6862;white-space:nowrap;vertical-align:top">BKP ${e(g.bkp)}</td><td style="padding:6px 0;color:#18221E"><b>${e(g.name)}</b><br><span style="color:#5B6862;font-size:13px">${e(g.menge)}</span></td><td style="padding:6px 0 6px 12px;text-align:right;white-space:nowrap;vertical-align:top">${chfE(g.betrag)}</td></tr>`).join("")}
+    ${l.offerte.gewerke.filter(g => !partner || TYPES[l.type] === partner || g.name === partner).map(g => `<tr><td style="padding:6px 12px 6px 0;color:#5B6862;white-space:nowrap;vertical-align:top">BKP ${e(g.bkp)}</td><td style="padding:6px 0;color:#18221E"><b>${e(g.name)}</b><br><span style="color:#5B6862;font-size:13px">${e(g.menge)}</span>${g.when ? `<br><span style="color:#8A5A0E;font-size:12px">Anfragen: ${e(g.when)}</span>` : ""}</td><td style="padding:6px 0 6px 12px;text-align:right;white-space:nowrap;vertical-align:top">${chfE(g.betrag)}</td></tr>`).join("")}
   </table>
-  <p style="margin:10px 0 0;font-size:12px;color:#5B6862">Beträge aus der Kostenschätzung nach BKP, ±25 %.</p>
+  <table role="presentation" cellpadding="0" cellspacing="0" style="font-size:14px;margin-top:10px">
+    ${row("Vertragsbasis", e(l.offerte.basis))}
+    ${row("Bedingungen", e(l.offerte.sia))}
+    ${row("Unterlagen", l.offerte.unterlagen.length ? e(l.offerte.unterlagen.join(", ")) : "<b style='color:#8A5A0E'>noch keine</b>")}
+  </table>
+  <p style="margin:10px 0 0;font-size:12px;color:#5B6862">Beträge aus der Kostenschätzung nach BKP, ±25 %. Drei Offerten pro Gewerk einholen und nach Preis, Leistungsumfang, Vorbehalten, Terminen und Zahlungsbedingungen vergleichen.</p>
 </td></tr>` : ""}
 <tr><td style="padding:16px 24px">
   <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#5B6862;margin-bottom:6px">Grundstück</div>
@@ -242,8 +247,9 @@ function sanitizeFinanz(f) {
 function sanitizeOfferte(o) {
   if (!o || typeof o !== "object") return { gewerke: [] };
   const gewerke = (Array.isArray(o.gewerke) ? o.gewerke : []).filter(g => g && GEWERKE.includes(g.id)).slice(0, 12)
-    .map(g => ({ id: g.id, bkp: str(g.bkp, 6), name: str(g.name, 60), menge: str(g.menge, 200), betrag: Number.isFinite(+g.betrag) ? Math.round(+g.betrag) : null }));
-  return { stand: str(o.stand, 60), start: str(o.start, 60), gewerke };
+    .map(g => ({ id: g.id, bkp: str(g.bkp, 6), name: str(g.name, 60), menge: str(g.menge, 200), when: str(g.when, 200), betrag: Number.isFinite(+g.betrag) ? Math.round(+g.betrag) : null }));
+  const unterlagen = (Array.isArray(o.unterlagen) ? o.unterlagen : []).slice(0, 8).map(u => str(u, 40)).filter(Boolean);
+  return { stand: str(o.stand, 60), start: str(o.start, 60), basis: str(o.basis, 60), sia: str(o.sia, 60), unterlagen, gewerke };
 }
 
 function summary(l) {
