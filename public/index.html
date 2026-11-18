@@ -143,6 +143,14 @@ footer a{color:inherit}
 .sim-tile dd small{display:block;font-family:var(--f-body);font-stretch:100%;font-weight:400;font-size:12.5px;color:var(--muted);margin-top:4px}
 .sim-note{margin:0;font-size:12.5px;color:var(--muted)}
 .sim-grid.g4{grid-template-columns:repeat(4,1fr)}
+.calc{margin-top:12px}
+.calc summary{cursor:pointer;font:600 13px var(--f-body);margin-bottom:6px}
+.calc-t{width:100%;border-collapse:collapse;font-size:13.5px}
+.calc-t th,.calc-t td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top;font-variant-numeric:tabular-nums}
+.calc-t th[scope=row]{text-align:left;font-weight:500}
+.calc-t thead th{font:500 11px var(--f-mono,monospace);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.calc-t small{display:block;color:var(--muted);font-size:11.5px;font-weight:400}
+.calc-t tr.sum th,.calc-t tr.sum td{border-top:2px solid var(--ink,currentColor);border-bottom:0}
 .consent{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--muted);cursor:pointer}
 .consent input{width:auto;margin:2px 0 0;accent-color:var(--accent)}
 .xlist.gwlist li{display:block}
@@ -596,16 +604,25 @@ const PRICE_ZH = {"zürich":17886,"winterthur":10598,"uster":11429,"dübendorf":
   "erlenbach":19514,"neftenbach":9053,"bonstetten":10784,"obfelden":10506,"greifensee":9868,"glattfelden":8532,"eglisau":9034,
   "zumikon":17643,"wettswil am albis":11772,"schwerzenbach":10848,"oberrieden":16909,"bäretswil":8257,"niederglatt":9039,
   "geroldswil":11456,"bauma":7612,"elgg":8385};
+/* Baulandpreise Kanton Zürich: Median der Modellpreise für unbebautes Land in Wohn- und Mischzonen, Fr./m², 2024,
+   pro Gemeinde (BFS-Nr.). Statistisches Amt Kanton Zürich, opendata.swiss (Datensatz 332, KANTON_ZUERICH_477.csv). */
+const BAULAND_ZH = {1:1466,2:1563,3:1940,4:1521,5:1759,6:1390,7:1364,8:725,9:1622,10:1282,11:1162,12:1120,13:847,14:2885,22:909,23:447,24:649,25:805,26:666,27:820,28:467,29:1132,31:1285,33:470,34:837,35:708,37:601,38:535,39:480,40:515,41:454,43:545,51:1516,52:1689,53:2061,54:2012,55:838,56:1279,57:946,58:887,59:1215,60:990,61:836,62:1680,63:905,64:1924,65:1133,66:2765,67:840,68:622,69:2761,70:493,71:859,72:2465,81:762,82:1407,83:1385,84:1592,85:1436,86:1458,87:804,88:1482,89:1583,90:1635,91:1341,92:975,93:1193,94:898,95:893,96:1950,97:1718,98:1053,99:1442,100:723,101:1388,102:696,111:1252,112:1251,113:855,114:453,115:1347,116:1174,117:1144,118:1025,119:1377,120:637,121:2066,131:1940,135:3824,136:1895,137:2777,138:1644,139:4828,141:2753,151:3858,152:4789,153:1017,154:3830,155:2793,156:2620,157:1239,158:2538,159:3238,160:3834,161:4766,172:1580,173:1168,176:1076,177:1911,178:927,180:740,181:591,182:629,191:2512,192:1919,193:1476,194:1931,195:1813,196:1212,197:1277,198:1726,199:1866,200:1363,211:470,213:1985,214:566,215:1037,216:948,218:606,219:851,220:636,221:1472,223:1179,224:928,225:849,226:506,227:1705,228:762,230:1926,231:488,241:1667,242:1744,243:1404,244:1943,245:1982,246:1495,247:2478,248:3517,249:2797,250:2523,251:1870,261:5795,291:799,292:565,293:1583,294:920,295:1630,296:1453,297:445,298:1309};
+const BAULAND_JAHR = 2024;
+/* Für Zürcher Gemeinden ohne Wohnungspreis: Preis aus dem Baulandpreis geschätzt.
+   Regression über die 75 Gemeinden mit RealAdvisor-Preis: ln(Preis) = 6.155 + 0.428 · ln(Baulandpreis), R² 0.75, Streuung ±12 % */
+const zhPriceFromLand = l => Math.exp(6.1547 + 0.4280*Math.log(l));
 const OEV_FACTOR = {A:1.10, B:1.04, C:1.00, D:0.94};
 const NEUBAU = 1.10, BAUKOSTEN = [3800,4600], NK_MARGE = 0.20, RUECKBAU_M2 = 120;
 const valOverride = {};
 const valKey = d => `${d.kanton||""}|${d.gemeinde||""}`;
 function basePrice(d){
   const g=String(d.gemeinde||"").toLowerCase().replace(/\s*\(.*\)\s*/g,"").trim();
-  if(d.kanton==="ZH" && PRICE_ZH[g]) return {price:PRICE_ZH[g]*NEUBAU, src:`Gemeinde ${d.gemeinde}`};
+  if(d.kanton==="ZH" && PRICE_ZH[g]) return {price:PRICE_ZH[g]*NEUBAU, src:`Gemeinde ${d.gemeinde}`, how:"Wohnungspreis der Gemeinde laut RealAdvisor (Sept. 2026)"};
+  if(d.kanton==="ZH" && BAULAND_ZH[d.bfsNr]) return {price:Math.round(zhPriceFromLand(BAULAND_ZH[d.bfsNr])/10)*10*NEUBAU, src:`Gemeinde ${d.gemeinde}`,
+    how:`aus dem Baulandpreis der Gemeinde abgeleitet (CHF ${fmt(BAULAND_ZH[d.bfsNr])}/m², Kanton Zürich ${BAULAND_JAHR}), ±12 %`};
   const kt=PRICE_KT[d.kanton]; if(!kt) return null;
   const f=OEV_FACTOR[d.oev]||0.90;
-  return {price:kt*f*NEUBAU, src:`Kanton ${d.kanton}, angepasst an die Lage (ÖV-Güteklasse ${d.oev||"keine"})`};
+  return {price:kt*f*NEUBAU, src:`Kanton ${d.kanton}, angepasst an die Lage (ÖV-Güteklasse ${d.oev||"keine"})`, how:"Kantonsdurchschnitt laut RealAdvisor (Sept. 2026), nach ÖV-Güteklasse angepasst"};
 }
 function valuation(d, sim){
   if(!sim||!sim.gfHi) return null;
@@ -617,8 +634,10 @@ function valuation(d, sim){
   const rueck = (sim.existing||0)*RUECKBAU_M2;
   const resid=(gf,k)=>{ const erl=gf*NUTZFLAECHE*price; return {erl, land:erl*(1-NK_MARGE)-gf*k-rueck}; };
   const lo=resid(sim.gfLo,kosten[1]), hi=resid(sim.gfHi,kosten[0]);
-  return {price, kosten, src:o.preis?"Ihr Wert":(b?b.src:""), custom:!!(o.preis||o.kosten), rueck,
-    erl:[lo.erl,hi.erl], land:[lo.land,hi.land], perM2:[lo.land/d.parcelArea, hi.land/d.parcelArea]};
+  return {price, kosten, src:o.preis?"Ihr Wert":(b?b.src:""), how:o.preis?"Ihr Wert":(b?b.how:""), custom:!!(o.preis||o.kosten), rueck,
+    erl:[lo.erl,hi.erl], land:[lo.land,hi.land], perM2:[lo.land/d.parcelArea, hi.land/d.parcelArea],
+    gf:[sim.gfLo,sim.gfHi], az:sim.rules&&sim.rules.az, geom:sim.gfHi<sim.rules.az[1]*d.parcelArea-1,
+    market: d.kanton==="ZH"&&BAULAND_ZH[d.bfsNr] ? BAULAND_ZH[d.bfsNr] : null};
 }
 function chf(v){ const a=Math.abs(v);
   if(a>=1e6) return (v/1e6).toFixed(a>=1e7?1:2).replace(".",",").replace(/,?0+$/,"")+" Mio.";
@@ -831,7 +850,40 @@ function valBodyHtml(d){
       <div class="sim-tile"><dt>Pro m² Parzelle</dt><dd>${neg?"–":"CHF "+rangeFmt(Math.max(0,v.perM2[0]),v.perM2[1])}<small>bei ${fmt(d.parcelArea)} m² Grundstück</small></dd></div>
       <div class="sim-tile"><dt>Verkaufserlös Neubau</dt><dd>CHF ${chfRange(v.erl[0],v.erl[1])}<small>ca. CHF ${fmt(Math.round(v.price/100)*100)} pro m² Wohnfläche</small></dd></div>
     </dl>
-    <p class="sim-note">Residualwert: Erlös minus Baukosten (CHF ${v.kosten[0]===v.kosten[1]?fmt(v.kosten[0]):fmt(v.kosten[0])+"–"+fmt(v.kosten[1])} pro m² Geschossfläche), ${Math.round(NK_MARGE*100)} % Nebenkosten und Entwicklermarge${v.rueck?`, Rückbau ca. CHF ${chf(v.rueck)}`:""}. Preisniveau: ${esc(v.src)}${v.custom?"":`, Wohnungspreise laut RealAdvisor (Sept. 2026), +10 % für Neubau`}. Unverbindlicher Richtwert, keine Verkehrswertschätzung.</p>`;
+    ${valCalcHtml(d,v)}
+    <p class="sim-note">Residualwert: Was ein Entwickler für das Land zahlen kann, wenn er die Wohnungen verkauft und Baukosten, Nebenkosten und Marge abzieht. Unverbindlicher Richtwert, keine Verkehrswertschätzung.</p>`;
+}
+/* Berechnungsweg (vorsichtig / optimistisch) und Vergleich mit dem Baulandpreis der Gemeinde */
+function valCalcHtml(d,v){
+  const c=(x,neg)=>`${neg?"− ":""}CHF ${fmt(Math.round(Math.abs(x)/1000)*1000)}`;
+  const k=v.kosten, sc=[{gf:v.gf[0],k:k[1],erl:v.erl[0],land:v.land[0]},{gf:v.gf[1],k:k[0],erl:v.erl[1],land:v.land[1]}];
+  const same=Math.abs(v.gf[0]-v.gf[1])<1&&k[0]===k[1];
+  const cols=same?[sc[1]]:sc;
+  const tr=(lab,f,cls)=>`<tr${cls?` class="${cls}"`:""}><th scope="row">${lab}</th>${cols.map(f).map(x=>`<td>${x}</td>`).join("")}</tr>`;
+  const az=v.az?(v.az[0]===v.az[1]?num2(v.az[0]):`${num2(v.az[0])}–${num2(v.az[1])}`):"–";
+  const rows=[
+    tr(`Geschossfläche<small>Ausnützungsziffer ${az}${v.geom?", begrenzt durch Grenzabstand und Geschosse":""}</small>`, x=>`${fmt(Math.round(x.gf))} m²`),
+    tr(`Wohnfläche<small>${Math.round(NUTZFLAECHE*100)} % der Geschossfläche</small>`, x=>`${fmt(Math.round(x.gf*NUTZFLAECHE))} m²`),
+    tr(`Verkaufserlös<small>× CHF ${fmt(Math.round(v.price/100)*100)} pro m² Wohnfläche${v.custom&&v.how==="Ihr Wert"?" (Ihr Wert)":""}</small>`, x=>c(x.erl)),
+    tr(`Nebenkosten und Marge<small>${Math.round(NK_MARGE*100)} % des Erlöses</small>`, x=>c(x.erl*NK_MARGE,true)),
+    tr(`Baukosten<small>CHF pro m² Geschossfläche</small>`, x=>`${c(x.gf*x.k,true)}<small>à CHF ${fmt(x.k)}</small>`),
+    v.rueck?tr(`Rückbau<small>bestehendes Gebäude</small>`, x=>c(v.rueck,true)):"",
+    tr(`Landwert`, x=>x.land>0?`<b>CHF ${chf(x.land)}</b><small>CHF ${fmt(Math.round(x.land/d.parcelArea))}/m²</small>`:"<b>kein positiver Wert</b>","sum"),
+  ].join("");
+  let cmp="";
+  if(v.market){
+    const mk=v.market*d.parcelArea, mid=(Math.max(0,v.land[0])+Math.max(0,v.land[1]))/2, r=mid/mk;
+    const verdict=r>=1.15?["ok","Über dem Marktpreis","Ein Neubau nach Simulation trägt mehr als den üblichen Baulandpreis. Das spricht für Entwicklungspotenzial."]
+      :r>=0.85?["info","Im Bereich des Marktpreises","Der Residualwert liegt nahe beim üblichen Baulandpreis der Gemeinde."]
+      :["warn","Unter dem Marktpreis","Mit dieser Ausnützung und diesen Kosten trägt ein Neubau weniger als den üblichen Baulandpreis. Höhere Ausnützung, tiefere Baukosten oder höhere Verkaufspreise prüfen. Bei kleinen Parzellen mit tiefer Ausnützungsziffer ist das häufig."];
+    cmp=`<ul class="xlist" style="margin-top:6px"><li><span class="k">Marktvergleich</span><span class="v">Baulandpreis ${esc(d.gemeinde||"Gemeinde")}: CHF ${fmt(v.market)}/m², für ${fmt(d.parcelArea)} m² also ca. CHF ${chf(mk)}<small>Median der Modellpreise für unbebautes Land in Wohn- und Mischzonen, Kanton Zürich ${BAULAND_JAHR}. ${verdict[2]}</small></span><span class="r"><span class="flag ${verdict[0]}">${verdict[1]}</span></span></li></ul>`;
+  } else {
+    cmp=`<p class="sim-note" style="margin-top:6px">Ein amtlicher Baulandpreis pro Gemeinde ist nur für den Kanton Zürich offen verfügbar. Für ${esc(d.kanton||"diesen Kanton")} fehlt der Marktvergleich.</p>`;
+  }
+  return `<details class="calc" open><summary>So wurde gerechnet</summary>
+    <table class="calc-t"><thead><tr><th></th>${same?"<th>Rechnung</th>":"<th>Vorsichtig</th><th>Optimistisch</th>"}</tr></thead><tbody>${rows}</tbody></table>
+    <p class="sim-note" style="margin:6px 0 0">Verkaufspreis: ${esc(v.how||v.src)}${v.custom&&v.how==="Ihr Wert"?"":", +10 % für Neubau"}. ${same?"":"Vorsichtig: tiefere Ausnützung und höhere Baukosten. Optimistisch: volle Ausnützung und tiefere Baukosten."}</p>
+    ${cmp}</details>`;
 }
 function valBlock(d){
   if(!d.parcel||!d.parcelArea) return "";

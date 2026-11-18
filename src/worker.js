@@ -9,7 +9,7 @@ export default {
       // Zeigt nur, ob Ziele konfiguriert sind, nie die Werte selbst.
       return Response.json({
         ok: true,
-        version: "2026-11-15-plattform",
+        version: "2026-11-18-landwert",
         email: !!(env.RESEND_API_KEY && env.LEAD_EMAIL_TO),
         webhook: !!env.LEAD_WEBHOOK_URL,
         kv: !!env.LEADS,
