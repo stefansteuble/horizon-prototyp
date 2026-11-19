@@ -145,6 +145,8 @@ footer a{color:inherit}
 .sim-grid.g4{grid-template-columns:repeat(4,1fr)}
 .calc{margin-top:12px}
 .calc summary{cursor:pointer;font:600 13px var(--f-body);margin-bottom:6px}
+.calc-f{font-weight:400;color:var(--muted);margin-left:6px}
+.calc-t tr.sub th,.calc-t tr.sub td{background:color-mix(in srgb,var(--line) 25%,transparent)}
 .calc-t{width:100%;border-collapse:collapse;font-size:13.5px}
 .calc-t th,.calc-t td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top;font-variant-numeric:tabular-nums}
 .calc-t th[scope=row]{text-align:left;font-weight:500}
@@ -410,6 +412,8 @@ async function analyseLive(hit, onStep){
       out.year=+b.gbauj||null; out.yearApprox=!b.gbauj&&GBAUP[b.gbaup]||null;
       out.klasse=GKLAS[b.gklas]||GKAT[b.gkat]||null; out.floors=+b.gastw||null;
       out.units=+b.ganzwhg||null; out.footprint=+b.garea||null;
+      const wa=(Array.isArray(b.warea)?b.warea:[]).map(Number).filter(x=>x>0); out.wohnflaeche=wa.length?Math.round(wa.reduce((t,x)=>t+x,0)):null;
+      const wz=(Array.isArray(b.wazim)?b.wazim:[]).map(Number).filter(x=>x>0); out.zimmer=wz.length?wz.reduce((t,x)=>t+x,0):null;
       out.heat=GENH[b.genh1]||null; out.fossil=[7520,7530].includes(+b.genh1);
       out.egrid=out.egrid||b.egrid||null; out.parzelle=out.parzelle||b.lparz||null; out.gemeinde=b.ggdename||out.gemeinde;
     }
@@ -639,11 +643,48 @@ function valuation(d, sim){
     gf:[sim.gfLo,sim.gfHi], az:sim.rules&&sim.rules.az, geom:sim.gfHi<sim.rules.az[1]*d.parcelArea-1,
     market: d.kanton==="ZH"&&BAULAND_ZH[d.bfsNr] ? BAULAND_ZH[d.bfsNr] : null};
 }
+/* ---------- Marktwert heute: Land inkl. bestehendem Gebäude (was der Eigentümer beim Verkauf erwarten kann) ----------
+   1) Realwert = Landwert (Fläche × Baulandpreis) + Zeitwert des Gebäudes (Geschossfläche × Neuwert × Restwert nach Alter)
+   2) Vergleichswert = Wohnfläche × Preis pro m² für bestehende Wohnungen der Gemeinde × Altersfaktor
+   Marktwert = Mittel aus beiden, Bandbreite ±10 %. Bietet ein Entwickler für einen Neubau mehr (Residualwert), wird das angezeigt. */
+const MV_REST_MIN=0.2, MV_LEBENSDAUER=80, MV_SPAN=0.10;
+const landFromPrice = p => Math.exp((Math.log(p)-6.1547)/0.4280);   // Umkehrung der Zürcher Regression
+function marketValue(d){
+  if(!d.parcelArea) return null;
+  const b=basePrice(d), o=valOverride[valKey(d)]||{};
+  const pNeu=o.preis||(b&&b.price); if(!pNeu) return null;
+  const pBest=pNeu/NEUBAU;                                            // Preisniveau bestehende Wohnungen
+  const zh=d.kanton==="ZH"&&BAULAND_ZH[d.bfsNr];
+  const landM2=zh?BAULAND_ZH[d.bfsNr]:Math.round(landFromPrice(pBest)/10)*10;
+  const landSrc=zh?`Baulandpreis ${d.gemeinde||"der Gemeinde"}, Median Kanton Zürich ${BAULAND_JAHR}`:"aus dem Preisniveau geschätzt, für diesen Kanton gibt es keine amtlichen Bodenpreise";
+  const land=landM2*d.parcelArea;
+  const kf=Math.min(1.05, Math.max(0.85, 0.8 + 0.2*((PRICE_KT[d.kanton]||12110)/12110)));
+  const k=o.kosten?[o.kosten,o.kosten]:BAUKOSTEN.map(x=>Math.round(x*kf/50)*50);
+  const yr=d.year||d.yearApprox, age=yr?Math.max(0,new Date().getFullYear()-yr):null;
+  const built=!d.empty&&d.footprint>0;
+  let bld=null, cmp=null;
+  if(built){
+    const gf=Math.round(d.footprint*(d.floors||1));
+    const rest=age!=null?Math.min(1,Math.max(MV_REST_MIN,1-age/MV_LEBENSDAUER)):0.5;
+    bld={gf, rest, k, val:gf*((k[0]+k[1])/2)*rest};
+    if((d.units||0)>0){
+      const wf=d.wohnflaeche||Math.round(gf*0.8);
+      const fa=age==null?0.92:age>=50?0.85:age>=30?0.92:age>=10?0.97:1;
+      cmp={wf, wfGwr:!!d.wohnflaeche, fa, p:pBest, val:wf*pBest*fa};
+    }
+  }
+  const real=land+(bld?bld.val:0);
+  const mid=cmp?(real+cmp.val)/2:real;
+  const v=d.sim&&d.sim.gfHi?valuation(d,d.sim):null;
+  const dev=v&&!v.noPrice?[Math.max(0,v.land[0]),Math.max(0,v.land[1])]:null;
+  return {landM2, landSrc, zh:!!zh, land, bld, cmp, real, mid, range:[mid*(1-MV_SPAN), mid*(1+MV_SPAN)], age, yr, pBest, dev,
+    devHigher: dev&&(dev[0]+dev[1])/2>mid*(1+MV_SPAN)};
+}
 function chf(v){ const a=Math.abs(v);
   if(a>=1e6) return (v/1e6).toFixed(a>=1e7?1:2).replace(".",",").replace(/,?0+$/,"")+" Mio.";
   return fmt(Math.round(v/1000)*1000); }
 function chfRange(a,b){ return a>=1e6||b>=1e6 ? `${chf(a).replace(" Mio.","")}–${chf(b)}` : `${chf(a)}–${chf(b)}`; }
-function valText(v){ if(!v||!v.land) return null; if(v.land[1]<=0) return "kein positiver Landwert"; return "CHF "+chfRange(Math.max(0,v.land[0]),v.land[1]); }
+function valText(v,d){ const m=d&&marketValue(d); if(m) return "CHF "+chfRange(m.range[0],m.range[1])+" (Marktwert heute)"; if(!v||!v.land) return null; if(v.land[1]<=0) return "kein positiver Landwert"; return "CHF "+chfRange(Math.max(0,v.land[0]),v.land[1]); }
 
 /* ---------- Bewertung (Indikatoren, kein Gutachten) ---------- */
 /* Score 0–100: die Ausbau-Reserve aus der Simulation zählt am meisten (max. 40 Punkte),
@@ -841,17 +882,32 @@ function simBlock(sim, d){
 
 /* Eingaben übernehmen und nur die betroffenen Teile neu zeichnen, ohne Fokus oder Kartenposition zu verlieren */
 function valBodyHtml(d){
-  const v=valuation(d, d.sim);
-  if(!v) return `<p class="sim-note">Für den Landwert braucht es eine Bebauungssimulation. Tragen Sie oben die Werte der Zone ein.</p>`;
-  if(v.noPrice) return `<p class="sim-note">Für diesen Ort ist kein Preisniveau hinterlegt. Tragen Sie unten einen Verkaufspreis ein.</p>`;
-  const neg=v.land[1]<=0;
-  return `<dl class="sim-grid" style="margin:0">
-      <div class="sim-tile key"><dt>Geschätzter Landwert</dt><dd>${neg?"–":"CHF "+chfRange(Math.max(0,v.land[0]),v.land[1])}<small>${neg?"Neubau rechnet sich mit diesen Annahmen nicht":"für einen Neubau nach Simulation"}</small></dd></div>
-      <div class="sim-tile"><dt>Pro m² Parzelle</dt><dd>${neg?"–":"CHF "+rangeFmt(Math.max(0,v.perM2[0]),v.perM2[1])}<small>bei ${fmt(d.parcelArea)} m² Grundstück</small></dd></div>
-      <div class="sim-tile"><dt>Verkaufserlös Neubau</dt><dd>CHF ${chfRange(v.erl[0],v.erl[1])}<small>ca. CHF ${fmt(Math.round(v.price/100)*100)} pro m² Wohnfläche</small></dd></div>
-    </dl>
-    ${valCalcHtml(d,v)}
-    <p class="sim-note">Residualwert: Was ein Entwickler für das Land zahlen kann, wenn er die Wohnungen verkauft und Baukosten, Nebenkosten und Marge abzieht. Unverbindlicher Richtwert, keine Verkehrswertschätzung.</p>`;
+  const m=marketValue(d), v=d.sim&&d.sim.gfHi?valuation(d,d.sim):null;
+  if(!m) return `<p class="sim-note">Für diesen Ort ist kein Preisniveau hinterlegt. Tragen Sie unten einen Verkaufspreis ein.</p>`;
+  const n1=x=>String(x).replace(".",",");
+  const dev=m.dev, devTxt=dev&&dev[1]>0?"CHF "+chfRange(dev[0],dev[1]):"–";
+  const tiles=`<dl class="sim-grid" style="margin:0">
+      <div class="sim-tile key"><dt>Marktwert heute</dt><dd>CHF ${chfRange(m.range[0],m.range[1])}<small>${m.bld?"Land inkl. bestehendem Gebäude":"unbebaute Parzelle"}, erwarteter Verkaufspreis</small></dd></div>
+      <div class="sim-tile"><dt>Davon Land</dt><dd>CHF ${chf(m.land)}<small>${fmt(d.parcelArea)} m² × CHF ${fmt(m.landM2)}/m²</small></dd></div>
+      <div class="sim-tile"><dt>Wert für einen Neubau</dt><dd>${devTxt}<small>${dev?(m.devHigher?"Ein Entwickler kann mehr bieten":"liegt nicht über dem Marktwert"):"ohne Simulation nicht berechenbar"}</small></dd></div>
+    </dl>`;
+  const c=x=>`CHF ${fmt(Math.round(x/1000)*1000)}`;
+  const tr=(lab,sub,val,cls)=>`<tr${cls?` class="${cls}"`:""}><th scope="row">${lab}<small>${sub}</small></th><td>${val}</td></tr>`;
+  const rows=[
+    tr("Land", `${fmt(d.parcelArea)} m² × CHF ${fmt(m.landM2)}/m², ${esc(m.landSrc)}`, c(m.land)),
+    m.bld?tr("Gebäude (Zeitwert)", `${fmt(m.bld.gf)} m² Geschossfläche × CHF ${fmt(Math.round((m.bld.k[0]+m.bld.k[1])/2/50)*50)} Neuwert × ${Math.round(m.bld.rest*100)} % Restwert${m.yr?` (Baujahr ${m.yr}${m.age>=MV_LEBENSDAUER*(1-MV_REST_MIN)?", Mindestwert":""})`:""}`, "+ "+c(m.bld.val)):"",
+    m.bld?tr("Realwert", "Land plus Gebäude", c(m.real), "sub"):"",
+    m.cmp?tr("Vergleichswert", `${fmt(m.cmp.wf)} m² Wohnfläche${m.cmp.wfGwr?" (GWR)":" (geschätzt)"} × CHF ${fmt(Math.round(m.cmp.p/100)*100)}/m² für bestehendes Wohneigentum in ${esc(d.gemeinde||"der Gemeinde")} × ${Math.round(m.cmp.fa*100)} % für das Alter`, c(m.cmp.val), "sub"):"",
+    tr("Marktwert heute", m.cmp?"Mittel aus Real- und Vergleichswert, ±10 %":m.bld?"Realwert, ±10 %":"Landwert, ±10 %", `<b>CHF ${chfRange(m.range[0],m.range[1])}</b>`, "sum"),
+  ].join("");
+  const facts=[d.klasse, (d.year||d.yearApprox)?`Baujahr ${d.year||"um "+d.yearApprox}`:"", d.wohnflaeche?`${fmt(d.wohnflaeche)} m² Wohnfläche`:"", d.zimmer?`${n1(d.zimmer)} Zimmer`:"", d.units>1?`${d.units} Wohnungen`:""].filter(Boolean).join(" · ");
+  return tiles+`
+    <details class="calc" open><summary>So wurde gerechnet${facts?` <span class="calc-f">${esc(facts)}</span>`:""}</summary>
+      <table class="calc-t"><tbody>${rows}</tbody></table>
+      ${m.devHigher?`<p class="sim-note" style="margin:8px 0 0"><b>Neubau-Potenzial:</b> Ein Entwickler könnte bis ${devTxt} zahlen, weil die Zone mehr Wohnfläche erlaubt als heute gebaut ist. Für den Eigentümer ist das der bessere Preis.</p>`:""}
+    </details>
+    ${v&&!v.noPrice?valCalcHtml(d,v):""}
+    <p class="sim-note">Richtwert ohne Besichtigung: Zustand, Renovationen, Aussicht und Mikrolage sind nicht berücksichtigt. Für einen Verkauf braucht es eine Schätzung durch eine Fachperson.</p>`;
 }
 /* Berechnungsweg (vorsichtig / optimistisch) und Vergleich mit dem Baulandpreis der Gemeinde */
 function valCalcHtml(d,v){
@@ -880,16 +936,16 @@ function valCalcHtml(d,v){
   } else {
     cmp=`<p class="sim-note" style="margin-top:6px">Ein amtlicher Baulandpreis pro Gemeinde ist nur für den Kanton Zürich offen verfügbar. Für ${esc(d.kanton||"diesen Kanton")} fehlt der Marktvergleich.</p>`;
   }
-  return `<details class="calc" open><summary>So wurde gerechnet</summary>
+  return `<details class="calc"><summary>Rechnung eines Entwicklers für einen Neubau</summary>
     <table class="calc-t"><thead><tr><th></th>${same?"<th>Rechnung</th>":"<th>Vorsichtig</th><th>Optimistisch</th>"}</tr></thead><tbody>${rows}</tbody></table>
     <p class="sim-note" style="margin:6px 0 0">Verkaufspreis: ${esc(v.how||v.src)}${v.custom&&v.how==="Ihr Wert"?"":", +10 % für Neubau"}. ${same?"":"Vorsichtig: tiefere Ausnützung und höhere Baukosten. Optimistisch: volle Ausnützung und tiefere Baukosten."}</p>
-    ${cmp}</details>`;
+    <p class="sim-note" style="margin:6px 0 0">Residualwert: Was ein Entwickler für Land und Bestand zahlen kann, wenn er abreisst, neu baut, die Wohnungen verkauft und Baukosten, Nebenkosten und Marge abzieht.</p></details>`;
 }
 function valBlock(d){
   if(!d.parcel||!d.parcelArea) return "";
   const o=valOverride[valKey(d)]||{}, b=basePrice(d);
   return `<section class="sim val" id="valSection">
-    <div class="sim-head"><div class="eyebrow">Landwert</div><span class="sim-tag" id="valTag">${o.preis||o.kosten?"Mit Ihren Werten":"Richtwert"}</span></div>
+    <div class="sim-head"><div class="eyebrow">Marktwert</div><span class="sim-tag" id="valTag">${o.preis||o.kosten?"Mit Ihren Werten":"Richtwert"}</span></div>
     <div id="valBody">${valBodyHtml(d)}</div>
     <button type="button" class="sim-edit" id="valEdit">Preise anpassen</button>
     <form class="sim-form" id="valForm" hidden novalidate>
@@ -1254,7 +1310,7 @@ function invest(d){
   const kosten=mid(v.kosten), bau=gf*kosten;
   const gc=g?garageCosts(d,g):null, gar=gc?mid(gc.total):0;
   const umg=bau*3.4/BKP2_SUM, nk=bau*BKP_NK;
-  const landRes=Math.max(0,mid(v.land));
+  const mv=marketValue(d), landRes=mv?mv.mid:Math.max(0,mid(v.land));
   const land=o.land!=null?o.land:landRes;
   const anlage=land+bau+gar+umg+nk+(v.rueck||0);
   const rent=o.miete||rentM2(d)||0, pp=g&&g.garage?g.stallsNet:0, ppm=ppMiete(d);
@@ -1271,7 +1327,7 @@ function investBodyHtml(d){
   if(!I) return `<p class="sim-note">Für die Ertragsrechnung braucht es eine Bebauungssimulation und ein Preisniveau.</p>`;
   const li=(k,v,r,s)=>`<li><span class="k">${k}</span><span class="v">${v}${s?`<small>${s}</small>`:""}</span><span class="r">${r||""}</span></li>`;
   const kost=[
-    li("Land", "CHF "+chf(I.land), "", I.landCustom?"Ihr Wert":"Residualwert (Mitte), bei eigenem Land 0 eintragen"),
+    li("Land", "CHF "+chf(I.land), "", I.landCustom?"Ihr Wert":"Marktwert heute (Mitte), bei eigenem Land 0 eintragen"),
     li("Gebäude", "CHF "+chf(I.bau), "BKP 2", `${fmt(I.gf)} m² × CHF ${fmt(Math.round(I.kosten/50)*50)}, inkl. Honorare`),
     I.gar?li(I.gc&&I.pp?"Tiefgarage":"Aushub UG", "CHF "+chf(I.gar), "", I.pp?`${I.pp} Plätze inkl. Aushub${I.gc.alt?", Altlasten":""}${I.gc.gw?", Grundwasser":""}`:"Untergeschoss"):"",
     li("Umgebung", "CHF "+chf(I.umg), "BKP 4", ""),
@@ -1305,7 +1361,7 @@ function investBlock(d){
     <button type="button" class="sim-edit" id="invEdit">Werte anpassen</button>
     <form class="sim-form" id="invForm" hidden novalidate>
       <div><label for="invMiete">Miete (CHF/m² Wohnfläche und Jahr)</label><input id="invMiete" inputmode="numeric" placeholder="${r?fmt(r):"z.B. 320"}" value="${o.miete||""}"></div>
-      <div><label for="invLand">Landkosten (CHF, 0 bei eigenem Land)</label><input id="invLand" inputmode="numeric" placeholder="Residualwert" value="${o.land!=null?o.land:""}"></div>
+      <div><label for="invLand">Landkosten (CHF, 0 bei eigenem Land)</label><input id="invLand" inputmode="numeric" placeholder="Marktwert" value="${o.land!=null?o.land:""}"></div>
       <button type="button" class="sim-reset" id="invReset">Standardwerte</button>
       <p class="hint2">Leere Felder verwenden die Standardwerte. Baukosten und Verkaufspreis passen Sie oben beim Landwert an.</p>
     </form>
@@ -1553,7 +1609,7 @@ async function makeIfc(d){
     "Zulässige Geschossfläche min m2": Math.round(sim.gfLo), "Zulässige Geschossfläche max m2": Math.round(sim.gfHi),
     "Bestehende Geschossfläche m2": sim.existing!=null?Math.round(sim.existing):null,
     "Ausbau-Reserve": simText(sim), "Mögliche Wohnungen": rangeFmt(sim.units[0],sim.units[1]),
-    "Landwert Richtwert": valText(v), "Geländehöhe m ü. M.": Math.round(h*10)/10,
+    "Marktwert heute": valText(v,d), "Geländehöhe m ü. M.": Math.round(h*10)/10,
     "Erstellt": new Date().toLocaleString("de-CH",{timeZone:"Europe/Zurich"}),
     "Hinweis": "Unverbindliche Schätzung aus dem Grundstück-Check (Prototyp TTMS Schweiz AG). Massgebend sind Bau- und Zonenordnung sowie der ÖREB-Auszug."
   };
@@ -1652,7 +1708,7 @@ function leadFacts(d){
              zone:d.zone||null, oev:d.oev||null, heat:d.heat||null, solar:d.solar||null,
              reserve:simText(d.sim), gfMax:d.sim&&d.sim.gfHi?rangeFmt(d.sim.gfLo,d.sim.gfHi," m²"):null,
              units:d.sim&&d.sim.units?rangeFmt(d.sim.units[0],d.sim.units[1]):null,
-             landValue:valText(valuation(d,d.sim)),
+             landValue:valText(valuation(d,d.sim),d),
              oerebZone:d.oerebZone?d.oerebZone.text:null,
              altlasten:altText(d),
              lwz:d.x?.lwz?.gemeinde?.length?`${pct2(d.x.lwz.gemeinde.at(-1).rate)} (${d.x.lwz.gemeinde.at(-1).year})`:null,
